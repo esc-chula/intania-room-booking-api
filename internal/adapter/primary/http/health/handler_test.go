@@ -45,7 +45,11 @@ func TestProbes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &fakePinger{ping: tc.ping}
 			h := New(p, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			path := "/healthz"
+			if tc.ready {
+				path = "/readyz"
+			}
+			r := httptest.NewRequest(http.MethodGet, path, nil)
 			if tc.name == "readiness timeout" {
 				ctx, cancel := context.WithTimeout(r.Context(), 10*time.Millisecond)
 				defer cancel()

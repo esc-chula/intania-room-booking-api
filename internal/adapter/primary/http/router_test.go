@@ -42,11 +42,29 @@ func TestRoutes(t *testing.T) {
 					if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
 						t.Fatal(err)
 					}
-					if spec["swagger"] != "2.0" || spec["basePath"] != "/api/v1" {
+					if spec["swagger"] != "2.0" || spec["basePath"] != "/" {
 						t.Fatalf("unexpected Swagger metadata: %v", spec)
 					}
-					if paths, ok := spec["paths"].(map[string]any); !ok || len(paths) != 0 {
-						t.Fatal("Phase 0 must have no documented business operations")
+					paths, ok := spec["paths"].(map[string]any)
+					if !ok || len(paths) != 2 {
+						t.Fatalf("want exactly two documented probe paths, got %v", spec["paths"])
+					}
+					for _, probe := range []string{"/healthz", "/readyz"} {
+						methods, ok := paths[probe].(map[string]any)
+						if !ok || len(methods) != 1 {
+							t.Fatalf("want one operation for %s, got %v", probe, paths[probe])
+						}
+						get, ok := methods["get"].(map[string]any)
+						if !ok {
+							t.Fatalf("missing GET %s operation", probe)
+						}
+						responses, ok := get["responses"].(map[string]any)
+						if !ok || responses["200"] == nil {
+							t.Fatalf("missing GET %s 200 response", probe)
+						}
+						if probe == "/readyz" && responses["503"] == nil {
+							t.Fatal("missing GET /readyz 503 response")
+						}
 					}
 				}
 				if path == "/swagger/index.html" && want == http.StatusOK && !strings.Contains(w.Body.String(), "swagger-ui") {

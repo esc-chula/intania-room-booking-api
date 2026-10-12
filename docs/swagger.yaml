@@ -1,4 +1,10 @@
-basePath: /api/v1
+basePath: /
+definitions:
+  health.probeResponse:
+    properties:
+      status:
+        type: string
+    type: object
 info:
   contact: {}
   description: Phase 0 foundation; no business operations yet. Future authentication
@@ -6,5 +12,35 @@ info:
     and CSRF protection, not bearer JWT.
   title: Chula Room Booking API
   version: 0.1.0
-paths: {}
+paths:
+  /healthz:
+    get:
+      description: Returns ok while the process is running; does not query PostgreSQL.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'status: ok'
+          schema:
+            $ref: '#/definitions/health.probeResponse'
+      summary: Check liveness
+      tags:
+      - health
+  /readyz:
+    get:
+      description: Pings PostgreSQL with a two-second timeout.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'status: ready'
+          schema:
+            $ref: '#/definitions/health.probeResponse'
+        "503":
+          description: 'status: unavailable'
+          schema:
+            $ref: '#/definitions/health.probeResponse'
+      summary: Check readiness
+      tags:
+      - health
 swagger: "2.0"

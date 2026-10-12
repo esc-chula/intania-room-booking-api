@@ -17,14 +17,33 @@ type Handler struct {
 	logger *slog.Logger
 }
 
+type probeResponse struct {
+	Status string `json:"status"`
+}
+
 func New(pinger Pinger, logger *slog.Logger) *Handler {
 	return &Handler{pinger: pinger, logger: logger}
 }
 
+// Healthz reports whether the process is alive.
+// @Summary Check liveness
+// @Description Returns ok while the process is running; does not query PostgreSQL.
+// @Tags health
+// @Produce json
+// @Success 200 {object} probeResponse "status: ok"
+// @Router /healthz [get]
 func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, "ok")
 }
 
+// Readyz reports whether PostgreSQL is reachable.
+// @Summary Check readiness
+// @Description Pings PostgreSQL with a two-second timeout.
+// @Tags health
+// @Produce json
+// @Success 200 {object} probeResponse "status: ready"
+// @Failure 503 {object} probeResponse "status: unavailable"
+// @Router /readyz [get]
 func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -41,7 +60,5 @@ func respond(w http.ResponseWriter, code int, status string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(struct {
-		Status string `json:"status"`
-	}{status})
+	_ = json.NewEncoder(w).Encode(probeResponse{Status: status})
 }

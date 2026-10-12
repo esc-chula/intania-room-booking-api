@@ -14,14 +14,71 @@ const docTemplate = `{
     },
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
-    "paths": {}
+    "paths": {
+        "/healthz": {
+            "get": {
+                "description": "Returns ok while the process is running; does not query PostgreSQL.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Check liveness",
+                "responses": {
+                    "200": {
+                        "description": "status: ok",
+                        "schema": {
+                            "$ref": "#/definitions/health.probeResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/readyz": {
+            "get": {
+                "description": "Pings PostgreSQL with a two-second timeout.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Check readiness",
+                "responses": {
+                    "200": {
+                        "description": "status: ready",
+                        "schema": {
+                            "$ref": "#/definitions/health.probeResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "status: unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/health.probeResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "health.probeResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        }
+    }
 }`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "0.1.0",
 	Host:             "",
-	BasePath:         "/api/v1",
+	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "Chula Room Booking API",
 	Description:      "Phase 0 foundation; no business operations yet. Future authentication uses Chula SSO and PostgreSQL-backed server-side sessions with secure cookies and CSRF protection, not bearer JWT.",

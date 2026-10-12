@@ -20,7 +20,7 @@ import (
 // @title Chula Room Booking API
 // @version 0.1.0
 // @description Phase 0 foundation; no business operations yet. Future authentication uses Chula SSO and PostgreSQL-backed server-side sessions with secure cookies and CSRF protection, not bearer JWT.
-// @BasePath /api/v1
+// @BasePath /
 func main() {
 	if err := run(); err != nil {
 		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("application stopped", "error", err)
