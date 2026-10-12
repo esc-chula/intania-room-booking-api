@@ -1,8 +1,9 @@
-# Chula Room Booking API — Phase 0
+# Chula Room Booking API
 
 Go backend foundation using Chi v5, pgx v5/pgxpool, PostgreSQL, log/slog,
-Swaggo v1, and future Goose SQL migrations. There are no business APIs, tables,
-SSO/session implementations, booking rules, or equipment features yet.
+Swaggo v1, and Goose SQL migrations. The first migration defines users,
+buildings, rooms, bookings, room scheduling, and audit logs. There are no
+business APIs, SSO/session implementations, or equipment features yet.
 
 ```text
 HTTP handler -> Domain service -> Domain port
@@ -52,7 +53,10 @@ the volume. No migrations run during startup.
 - Development docs: http://localhost:8080/swagger/index.html and
   http://localhost:8080/swagger/doc.json. Both return 404 in production.
 - All unknown routes, including `/api/v1/rooms`, return 404. Future business
-  routes will use `/api/v1`; generated Swagger currently has zero operations.
+  routes will use `/api/v1`. Swagger documents the two root-level probes; its
+  base path is `/` so their URLs are accurate. Future business route annotations
+  must include `/api/v1` in their paths. This changes the Swagger base path
+  specified in the Phase 0 initialization plan.
 
 The process fails startup if PostgreSQL is unavailable. SIGINT/SIGTERM drain
 HTTP requests within SHUTDOWN_TIMEOUT (10 seconds by default), then close the
@@ -90,7 +94,7 @@ make db-up
 
 Stop the API with Ctrl-C or SIGTERM. GitHub Actions runs checks without a DB.
 
-## Container and future migrations
+## Container and migrations
 
 ```sh
 docker build -t chula-room-booking-api .
@@ -103,16 +107,21 @@ The runtime is non-root with CA certificates; APP_ENV defaults to production.
 Supply a DB host reachable from the container (localhost points to the container).
 No environment files or credentials are copied into the image.
 
-The migrations directory is intentionally empty. Install the pinned Goose v3
-CLI separately when real schema migrations are introduced:
+Install the pinned Goose v3 CLI, then migrate the database separately from API
+startup:
 
 ```sh
 go install github.com/pressly/goose/v3/cmd/goose@v3.24.3
-# Later, AFTER schema migrations exist and DATABASE_URL is exported:
+export DATABASE_URL='postgres://chula:localdev@localhost:5432/chula_room_booking?sslmode=disable'
 goose -dir db/migrations postgres "$DATABASE_URL" up
+# To roll back the latest migration:
+goose -dir db/migrations postgres "$DATABASE_URL" down
 ```
 
 Future authentication uses Chula SSO and PostgreSQL-backed server-side sessions,
 not JWT. Secure session cookies and CSRF protection belong to that future phase;
-Swagger 2.0 cannot natively model cookie authentication. The team's API v0.2,
-DBML v1, and EPIC define future behavior/schema and are not implemented here.
+Swagger 2.0 cannot natively model cookie authentication. This first migration
+extends the preserved Phase 0 initialization plan using the DBML supplied for
+this change; it excludes equipment and external identities. The team's API v0.2,
+DBML v1, and EPIC remain future functional sources of truth and are not present
+in this repository.
