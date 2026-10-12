@@ -66,7 +66,7 @@ strings, cookies, authentication headers, or bodies. Proxy headers are not used
 to determine client IP.
 
 ```sh
-make tools          # local .bin/swag, pinned v1.16.6
+make tools          # local .bin/swag and .bin/goose, pinned versions
 make swagger        # regenerate committed Go/JSON/YAML docs
 make check          # formatting check, vet, unit tests, build, docs drift
 go build ./...      # all packages
@@ -107,15 +107,14 @@ The runtime is non-root with CA certificates; APP_ENV defaults to production.
 Supply a DB host reachable from the container (localhost points to the container).
 No environment files or credentials are copied into the image.
 
-Install the pinned Goose v3 CLI, then migrate the database separately from API
-startup:
+Install the pinned tools and migrate the database separately from API startup.
+The migration targets use `DATABASE_URL` from the environment, or from `.env`
+when it is unset:
 
 ```sh
-go install github.com/pressly/goose/v3/cmd/goose@v3.24.3
-export DATABASE_URL='postgres://chula:localdev@localhost:5432/chula_room_booking?sslmode=disable'
-goose -dir db/migrations postgres "$DATABASE_URL" up
-# To roll back the latest migration:
-goose -dir db/migrations postgres "$DATABASE_URL" down
+make tools
+make migrate-up
+make migrate-down  # roll back the latest migration
 ```
 
 Future authentication uses Chula SSO and PostgreSQL-backed server-side sessions,
