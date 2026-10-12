@@ -22,7 +22,11 @@ func TestRoutes(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	for _, env := range []string{"development", "production"} {
 		t.Run(env, func(t *testing.T) {
-			router := NewRouter(health.New(pinger{}, logger), logger, env)
+			router := NewRouter(RouterConfig{
+				Health: health.New(pinger{}, logger),
+				Logger: logger,
+				AppEnv: env,
+			})
 			for _, path := range []string{"/healthz", "/readyz", "/swagger/doc.json", "/swagger/index.html", "/unknown", "/api/v1/rooms"} {
 				w := httptest.NewRecorder()
 				router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))

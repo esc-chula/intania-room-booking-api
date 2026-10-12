@@ -41,9 +41,15 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	healthHandler := health.New(pool, logger)
+	router := httpadapter.NewRouter(httpadapter.RouterConfig{
+		Health: healthHandler,
+		Logger: logger,
+		AppEnv: c.AppEnv,
+	})
 	server := &http.Server{
 		Addr:              c.HTTPAddr,
-		Handler:           httpadapter.NewRouter(health.New(pool, logger), logger, c.AppEnv),
+		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
