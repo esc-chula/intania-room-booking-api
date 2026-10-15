@@ -15,6 +15,7 @@ type Config struct {
 	HTTPAddr         string
 	LogLevel         slog.Level
 	DatabaseURL      string
+	JWTSecret        string
 	DBMaxConns       int32
 	DBMinConns       int32
 	DBConnectTimeout time.Duration
@@ -45,6 +46,10 @@ func Load() (Config, error) {
 	}
 	if strings.TrimSpace(c.DatabaseURL) == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")
+	}
+	c.JWTSecret = os.Getenv("JWT_SECRET")
+	if len(strings.TrimSpace(c.JWTSecret)) < 32 {
+		return c, fmt.Errorf("JWT_SECRET must contain at least 32 non-padding bytes")
 	}
 	max, err := strconv.ParseInt(value("DB_MAX_CONNS", "10"), 10, 32)
 	if err != nil || max < 1 {

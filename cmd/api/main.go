@@ -12,15 +12,23 @@ import (
 
 	_ "example.com/chula-room-booking/docs"
 	httpadapter "example.com/chula-room-booking/internal/adapter/primary/http"
+	httpauth "example.com/chula-room-booking/internal/adapter/primary/http/auth"
 	"example.com/chula-room-booking/internal/adapter/primary/http/health"
 	"example.com/chula-room-booking/internal/adapter/secondary/infrastructure/database"
+	"example.com/chula-room-booking/internal/adapter/secondary/infrastructure/token"
+	"example.com/chula-room-booking/internal/adapter/secondary/repository/postgres"
 	"example.com/chula-room-booking/internal/config"
+	"example.com/chula-room-booking/internal/core/domain/auth"
 )
 
 // @title Chula Room Booking API
 // @version 0.1.0
-// @description Phase 0 foundation; no business operations yet. Future authentication uses Chula SSO and PostgreSQL-backed server-side sessions with secure cookies and CSRF protection, not bearer JWT.
+// @description Email/password authentication with one-hour stateless bearer JWTs. OAuth integration is planned.
 // @BasePath /
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Enter Bearer followed by a space and your access token.
 func main() {
 	if err := run(); err != nil {
 		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("application stopped", "error", err)
@@ -42,7 +50,16 @@ func run() error {
 	}
 	defer pool.Close()
 	healthHandler := health.New(pool, logger)
+	tokens, err := token.New(c.JWTSecret)
+	if err != nil {
+		return err
+	}
+	authService, err := auth.New(postgres.NewUsers(pool), tokens)
+	if err != nil {
+		return err
+	}
 	router := httpadapter.NewRouter(httpadapter.RouterConfig{
+		Auth:   httpauth.New(authService, logger),
 		Health: healthHandler,
 		Logger: logger,
 		AppEnv: c.AppEnv,

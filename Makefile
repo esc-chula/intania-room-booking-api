@@ -3,7 +3,7 @@ GOOSE_VERSION := v3.24.3
 TOOLS_DIR := $(CURDIR)/.bin
 SWAG := $(TOOLS_DIR)/swag
 GOOSE := $(TOOLS_DIR)/goose
-SWAG_ARGS := -g main.go -d ./cmd/api,./internal/adapter/primary/http --parseInternal
+SWAG_ARGS := -g main.go -d ./cmd/api,./internal/adapter/primary/http,./internal/core/domain/auth,./internal/core/domain/user --parseInternal
 
 .PHONY: db-up db-down migrate-up migrate-down run fmt fmt-check vet test build tools swagger swagger-check check
 

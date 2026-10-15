@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,7 +12,11 @@ import (
 	"testing"
 
 	_ "example.com/chula-room-booking/docs"
+	httpauth "example.com/chula-room-booking/internal/adapter/primary/http/auth"
 	"example.com/chula-room-booking/internal/adapter/primary/http/health"
+	"example.com/chula-room-booking/internal/adapter/secondary/infrastructure/token"
+	"example.com/chula-room-booking/internal/core/domain/auth"
+	"example.com/chula-room-booking/internal/core/domain/user"
 )
 
 type pinger struct{}
@@ -46,8 +51,8 @@ func TestRoutes(t *testing.T) {
 						t.Fatalf("unexpected Swagger metadata: %v", spec)
 					}
 					paths, ok := spec["paths"].(map[string]any)
-					if !ok || len(paths) != 2 {
-						t.Fatalf("want exactly two documented probe paths, got %v", spec["paths"])
+					if !ok || len(paths) != 5 {
+						t.Fatalf("want five documented paths, got %v", spec["paths"])
 					}
 					for _, probe := range []string{"/healthz", "/readyz"} {
 						methods, ok := paths[probe].(map[string]any)
@@ -66,9 +71,158 @@ func TestRoutes(t *testing.T) {
 							t.Fatal("missing GET /readyz 503 response")
 						}
 					}
+					for path, method := range map[string]string{"/api/v1/auth/register": "post", "/api/v1/auth/login": "post", "/api/v1/auth/me": "get"} {
+						operations, ok := paths[path].(map[string]any)
+						if !ok || operations[method] == nil {
+							t.Fatalf("missing %s %s documentation", method, path)
+						}
+					}
 				}
 				if path == "/swagger/index.html" && want == http.StatusOK && !strings.Contains(w.Body.String(), "swagger-ui") {
 					t.Fatal("missing Swagger UI")
+				}
+			}
+		})
+	}
+}
+
+type authRepository struct {
+	credentials auth.Credentials
+	err         error
+}
+
+func (r *authRepository) CreateUser(_ context.Context, name, email, hash string) (user.User, error) {
+	if r.err != nil {
+		return user.User{}, r.err
+	}
+	if r.credentials.User.Email == email {
+		return user.User{}, auth.ErrEmailExists
+	}
+	r.credentials = auth.Credentials{User: user.User{ID: "11111111-1111-4111-8111-111111111111", Name: name, Email: email, Role: "USER_A", Active: true}, PasswordHash: hash}
+	return r.credentials.User, nil
+}
+func (r *authRepository) FindCredentialsByEmail(_ context.Context, email string) (auth.Credentials, error) {
+	if r.err != nil {
+		return auth.Credentials{}, r.err
+	}
+	if email != r.credentials.User.Email {
+		return auth.Credentials{}, auth.ErrNotFound
+	}
+	return r.credentials, nil
+}
+func (r *authRepository) FindUserByID(_ context.Context, id string) (user.User, error) {
+	if r.err != nil {
+		return user.User{}, r.err
+	}
+	if id != r.credentials.User.ID {
+		return user.User{}, auth.ErrNotFound
+	}
+	return r.credentials.User, nil
+}
+
+func TestAuthRoutes(t *testing.T) {
+	for _, env := range []string{"development", "production"} {
+		t.Run(env, func(t *testing.T) {
+			var logs strings.Builder
+			logger := slog.New(slog.NewJSONHandler(&logs, nil))
+			repo := &authRepository{}
+			tokens, err := token.New("test-only-secret-with-at-least-32-bytes")
+			if err != nil {
+				t.Fatal(err)
+			}
+			service, err := auth.New(repo, tokens)
+			if err != nil {
+				t.Fatal(err)
+			}
+			router := NewRouter(RouterConfig{Health: health.New(pinger{}, logger), Auth: httpauth.New(service, logger), Logger: logger, AppEnv: env})
+			request := func(method, path, body, bearer string) *httptest.ResponseRecorder {
+				r := httptest.NewRequest(method, path, strings.NewReader(body))
+				r.Header.Set("Content-Type", "application/json")
+				if bearer != "" {
+					r.Header.Set("Authorization", bearer)
+				}
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, r)
+				if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Type") != "application/json" {
+					t.Fatal("missing JSON/no-store headers")
+				}
+				if strings.Contains(w.Body.String(), "password") || strings.Contains(w.Body.String(), "active") {
+					t.Fatalf("private fields exposed: %s", w.Body.String())
+				}
+				return w
+			}
+			body := `{"name":" Test User ","email":" TEST@example.com ","password":"test-password-123"}`
+			w := request("POST", "/api/v1/auth/register", body, "")
+			if w.Code != 201 {
+				t.Fatalf("register: %d %s", w.Code, w.Body.String())
+			}
+			var registered auth.Result
+			if err := json.Unmarshal(w.Body.Bytes(), &registered); err != nil {
+				t.Fatal(err)
+			}
+			if registered.User.Role != "USER_A" || registered.User.Email != "test@example.com" || registered.ExpiresIn != 3600 || registered.TokenType != "Bearer" || registered.AccessToken == "" {
+				t.Fatalf("unexpected registration: %+v", registered)
+			}
+			w = request("POST", "/api/v1/auth/login", `{"email":"test@example.com","password":"test-password-123"}`, "")
+			if w.Code != 200 {
+				t.Fatalf("login: %d %s", w.Code, w.Body.String())
+			}
+			var loggedIn auth.Result
+			if err := json.Unmarshal(w.Body.Bytes(), &loggedIn); err != nil {
+				t.Fatal(err)
+			}
+			w = request("GET", "/api/v1/auth/me", "", "Bearer "+loggedIn.AccessToken)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), registered.User.ID) {
+				t.Fatalf("me: %d %s", w.Code, w.Body.String())
+			}
+			for _, tc := range []struct {
+				path, body, bearer string
+				status             int
+			}{
+				{"register", body, "", 409},
+				{"register", `{"name":"User","email":"other@example.com","password":"test-password-123","role":"OS"}`, "", 400},
+				{"register", `{"name":"User","email":"other@example.com","password":"test-password-123","id":"client-id"}`, "", 400},
+				{"register", `{"name":"User","email":"other@example.com","password":"test-password-123","active":true}`, "", 400},
+				{"register", `{"name":"User","email":"bad-email","password":"test-password-123"}`, "", 400},
+				{"register", `{"name":"User","email":"other@example.com","password":"short"}`, "", 400},
+				{"register", `{`, "", 400}, {"register", `null`, "", 400},
+				{"register", body + ` {}`, "", 400}, {"register", strings.Repeat(" ", 16<<10) + body, "", 400},
+				{"login", `{"email":"test@example.com","password":"incorrect-password"}`, "", 401},
+				{"login", `{"email":"unknown@example.com","password":"incorrect-password"}`, "", 401},
+				{"login", `{"email":"test@example.com","password":"test-password-123","unknown":1}`, "", 400},
+				{"me", "", "", 401}, {"me", "", "Bearer", 401}, {"me", "", "Bearer invalid", 401},
+				{"me", "", "Basic " + loggedIn.AccessToken, 401}, {"me", "", "Bearer " + loggedIn.AccessToken + " extra", 401},
+			} {
+				method := "POST"
+				if tc.path == "me" {
+					method = "GET"
+				}
+				w := request(method, "/api/v1/auth/"+tc.path, tc.body, tc.bearer)
+				if w.Code != tc.status {
+					t.Fatalf("%s: got %d want %d: %s", tc.path, w.Code, tc.status, w.Body.String())
+				}
+			}
+			repo.credentials.User.Role = "OS"
+			w = request("GET", "/api/v1/auth/me", "", "Bearer "+loggedIn.AccessToken)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), `"role":"OS"`) {
+				t.Fatal("role change not reflected")
+			}
+			repo.credentials.User.Active = false
+			if w := request("GET", "/api/v1/auth/me", "", "Bearer "+loggedIn.AccessToken); w.Code != 401 {
+				t.Fatal("disabled user accepted")
+			}
+			repo.credentials.User.Active = true
+			repo.credentials.User.ID = "deleted"
+			if w := request("GET", "/api/v1/auth/me", "", "Bearer "+loggedIn.AccessToken); w.Code != 401 {
+				t.Fatal("deleted user accepted")
+			}
+			repo.err = errors.New("database-password-must-not-appear")
+			if w := request("POST", "/api/v1/auth/login", `{"email":"test@example.com","password":"test-password-123"}`, ""); w.Code != 500 {
+				t.Fatal("wrong database error status")
+			}
+			for _, secret := range []string{"test-password-123", "database-password-must-not-appear", loggedIn.AccessToken} {
+				if strings.Contains(logs.String(), secret) {
+					t.Fatal("sensitive data logged")
 				}
 			}
 		})

@@ -15,6 +15,7 @@ func defaults(t *testing.T) {
 		}
 	}
 	t.Setenv("DATABASE_URL", "postgres://user:password@localhost/test")
+	t.Setenv("JWT_SECRET", "test-only-jwt-secret-at-least-32-bytes")
 }
 
 func TestDefaults(t *testing.T) {
@@ -31,6 +32,7 @@ func TestDefaults(t *testing.T) {
 func TestRejectInvalidConfiguration(t *testing.T) {
 	for _, tc := range []struct{ key, value string }{
 		{"DATABASE_URL", ""}, {"DATABASE_URL", "  "},
+		{"JWT_SECRET", ""}, {"JWT_SECRET", "short"}, {"JWT_SECRET", "                                "},
 		{"APP_ENV", "staging"}, {"APP_ENV", ""},
 		{"HTTP_ADDR", "localhost"}, {"HTTP_ADDR", ":0"}, {"HTTP_ADDR", ":65536"}, {"HTTP_ADDR", "bad host:8080"},
 		{"LOG_LEVEL", "verbose"},

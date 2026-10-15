@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"example.com/chula-room-booking/internal/adapter/primary/http/auth"
 	"example.com/chula-room-booking/internal/adapter/primary/http/health"
 	requestmiddleware "example.com/chula-room-booking/internal/adapter/primary/http/middleware"
 	"github.com/go-chi/chi/v5"
@@ -12,6 +13,7 @@ import (
 )
 
 type RouterConfig struct {
+	Auth   *auth.Handler
 	Health *health.Handler
 	Logger *slog.Logger
 	AppEnv string
@@ -24,6 +26,13 @@ func NewRouter(config RouterConfig) http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Get("/healthz", config.Health.Healthz)
 	r.Get("/readyz", config.Health.Readyz)
+	if config.Auth != nil {
+		r.Route("/api/v1/auth", func(r chi.Router) {
+			r.Post("/register", config.Auth.Register)
+			r.Post("/login", config.Auth.Login)
+			r.With(config.Auth.Authenticate).Get("/me", config.Auth.Me)
+		})
+	}
 	if config.AppEnv == "development" {
 		r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
 	}
