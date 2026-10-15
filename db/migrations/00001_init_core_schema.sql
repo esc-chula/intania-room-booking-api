@@ -1,6 +1,7 @@
 -- +goose Up
 CREATE TYPE user_role AS ENUM ('USER_A', 'USER_B', 'OS');
 CREATE TYPE booking_status AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED');
+CREATE TYPE booking_type AS ENUM ('ONE_DAY', 'CONTINUOUS_DAYS', 'WEEKLY', 'CUSTOM');
 
 CREATE TABLE users (
     id uuid PRIMARY KEY,
@@ -35,31 +36,28 @@ CREATE TABLE rooms (
 CREATE TABLE booking_requests (
     id uuid PRIMARY KEY,
     requester_id uuid NOT NULL REFERENCES users (id),
+    booking_type booking_type NOT NULL,
     purpose text,
     project_code varchar,
     contact_phone varchar,
-    status booking_status DEFAULT 'PENDING',
-    submitted_at timestamp,
-    created_at timestamp,
-    updated_at timestamp
+    status booking_status NOT NULL DEFAULT 'PENDING',
+    submitted_at timestamptz,
+    created_at timestamptz,
+    updated_at timestamptz
 );
 
-CREATE TABLE booking_rooms (
+CREATE TABLE booking_occurrences (
     id uuid PRIMARY KEY,
     booking_request_id uuid NOT NULL REFERENCES booking_requests (id),
     room_id uuid NOT NULL REFERENCES rooms (id),
-    start_at timestamp NOT NULL,
-    end_at timestamp NOT NULL,
+    start_at timestamptz NOT NULL,
+    end_at timestamptz NOT NULL,
     attendee_count int,
-    remark text,
-    status booking_status DEFAULT 'PENDING',
-    created_at timestamp,
-    updated_at timestamp
+    remark text
 );
 
-CREATE INDEX booking_rooms_room_id_idx ON booking_rooms (room_id);
-CREATE INDEX booking_rooms_booking_request_id_idx ON booking_rooms (booking_request_id);
-CREATE INDEX booking_rooms_room_id_start_at_end_at_idx ON booking_rooms (room_id, start_at, end_at);
+CREATE INDEX booking_occurrences_booking_request_id_idx ON booking_occurrences (booking_request_id);
+CREATE INDEX booking_occurrences_room_id_start_at_end_at_idx ON booking_occurrences (room_id, start_at, end_at);
 
 CREATE TABLE room_rules (
     id uuid PRIMARY KEY,
@@ -106,11 +104,12 @@ DROP TABLE audit_logs;
 DROP TABLE room_hour_overrides;
 DROP TABLE room_opening_hours;
 DROP TABLE room_rules;
-DROP TABLE booking_rooms;
+DROP TABLE booking_occurrences;
 DROP TABLE booking_requests;
 DROP TABLE rooms;
 DROP TABLE buildings;
 DROP TABLE users;
 
 DROP TYPE booking_status;
+DROP TYPE booking_type;
 DROP TYPE user_role;
