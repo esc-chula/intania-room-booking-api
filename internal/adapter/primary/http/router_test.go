@@ -11,14 +11,14 @@ import (
 	"strings"
 	"testing"
 
-	_ "example.com/chula-room-booking/docs"
-	httpauth "example.com/chula-room-booking/internal/adapter/primary/http/auth"
-	"example.com/chula-room-booking/internal/adapter/primary/http/health"
-	httpsheetbooking "example.com/chula-room-booking/internal/adapter/primary/http/sheetbooking"
-	"example.com/chula-room-booking/internal/adapter/secondary/infrastructure/token"
-	"example.com/chula-room-booking/internal/core/domain/auth"
-	"example.com/chula-room-booking/internal/core/domain/sheetbooking"
-	"example.com/chula-room-booking/internal/core/domain/user"
+	_ "github.com/MadManJJ/room-reservation-api/docs"
+	httpauth "github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/auth"
+	"github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/health"
+	httpsheetbooking "github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/sheetbooking"
+	"github.com/MadManJJ/room-reservation-api/internal/adapter/secondary/infrastructure/token"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/auth"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/sheetbooking"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/user"
 )
 
 type pinger struct{}

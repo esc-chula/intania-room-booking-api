@@ -54,7 +54,7 @@ Avoid speculative microservices, Kubernetes, Redis, Kafka, event buses, Huma, in
 
 ## Build, Test & Development Commands
 
-Use the Go version declared in `go.mod` (currently 1.26.8), Make, a POSIX shell, and Docker Compose. The current module path, `example.com/chula-room-booking`, is temporary; change it and imports only when the real path is established.
+Use the Go version declared in `go.mod` (currently 1.26.8), Make, a POSIX shell, and Docker Compose. The current module path, `github.com/MadManJJ/room-reservation-api`, is temporary; change it and imports only when the real path is established.
 
 ```sh
 cp .env.example .env

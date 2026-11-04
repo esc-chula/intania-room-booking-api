@@ -20,7 +20,7 @@ cmd/api wires config -> logger -> pgxpool -> repositories/services -> handlers -
 Auth and user domain packages implement authentication; other domain folders
 remain placeholders. Operational health handlers need no domain service.
 Repositories use parameterized pgx SQL directly, without an ORM
-or sqlc. The temporary Go module path is `example.com/chula-room-booking` because
+or sqlc. The temporary Go module path is `github.com/MadManJJ/room-reservation-api` because
 this repository has no Git remote; replace it and its imports when the real
 module path is known.
 

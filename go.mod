@@ -1,4 +1,4 @@
-module example.com/chula-room-booking
+module github.com/MadManJJ/room-reservation-api
 
 go 1.26.8
 

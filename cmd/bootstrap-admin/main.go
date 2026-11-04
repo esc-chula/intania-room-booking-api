@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 
-	"example.com/chula-room-booking/internal/adapter/secondary/infrastructure/database"
-	"example.com/chula-room-booking/internal/adapter/secondary/repository/postgres"
-	"example.com/chula-room-booking/internal/config"
-	"example.com/chula-room-booking/internal/core/domain/auth"
+	"github.com/MadManJJ/room-reservation-api/internal/adapter/secondary/infrastructure/database"
+	"github.com/MadManJJ/room-reservation-api/internal/adapter/secondary/repository/postgres"
+	"github.com/MadManJJ/room-reservation-api/internal/config"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/auth"
 )
 
 func main() {

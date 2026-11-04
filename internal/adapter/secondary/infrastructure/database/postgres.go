@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"example.com/chula-room-booking/internal/config"
+	"github.com/MadManJJ/room-reservation-api/internal/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

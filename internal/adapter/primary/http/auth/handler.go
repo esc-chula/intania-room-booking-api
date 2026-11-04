@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	domainauth "example.com/chula-room-booking/internal/core/domain/auth"
-	"example.com/chula-room-booking/internal/core/domain/user"
+	domainauth "github.com/MadManJJ/room-reservation-api/internal/core/domain/auth"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/user"
 )
 
 type Handler struct {

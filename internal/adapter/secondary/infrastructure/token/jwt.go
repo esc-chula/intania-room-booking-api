@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"time"
 
-	"example.com/chula-room-booking/internal/core/domain/auth"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/auth"
 	"github.com/golang-jwt/jwt/v5"
 )
 

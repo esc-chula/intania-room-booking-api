@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"example.com/chula-room-booking/internal/core/domain/sheetbooking"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/sheetbooking"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )

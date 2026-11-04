@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	domainbooking "example.com/chula-room-booking/internal/core/domain/sheetbooking"
+	domainbooking "github.com/MadManJJ/room-reservation-api/internal/core/domain/sheetbooking"
 )
 
 type Handler struct {

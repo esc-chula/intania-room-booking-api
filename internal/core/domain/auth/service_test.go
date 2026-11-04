@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"example.com/chula-room-booking/internal/core/domain/user"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/user"
 	"golang.org/x/crypto/bcrypt"
 )
 

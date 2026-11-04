@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"example.com/chula-room-booking/internal/core/domain/auth"
-	"example.com/chula-room-booking/internal/core/domain/user"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/auth"
+	"github.com/MadManJJ/room-reservation-api/internal/core/domain/user"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
