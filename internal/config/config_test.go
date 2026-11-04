@@ -8,7 +8,7 @@ import (
 
 func defaults(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"APP_ENV", "HTTP_ADDR", "LOG_LEVEL", "DB_MAX_CONNS", "DB_MIN_CONNS", "DB_CONNECT_TIMEOUT", "SHUTDOWN_TIMEOUT"} {
+	for _, key := range []string{"APP_ENV", "HTTP_ADDR", "LOG_LEVEL", "BOOTSTRAP_ADMIN_NAME", "BOOTSTRAP_ADMIN_PASSWORD", "DB_MAX_CONNS", "DB_MIN_CONNS", "DB_CONNECT_TIMEOUT", "SHUTDOWN_TIMEOUT"} {
 		t.Setenv(key, "")
 		if err := os.Unsetenv(key); err != nil {
 			t.Fatal(err)
@@ -26,7 +26,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.AppEnv != "development" || c.HTTPAddr != ":8080" || c.DBMaxConns != 10 || c.DBMinConns != 0 || c.DBConnectTimeout != 5*time.Second || c.ShutdownTimeout != 10*time.Second {
+	if c.AppEnv != "development" || c.HTTPAddr != ":8080" || c.BootstrapAdminName != "Admin" || c.BootstrapAdminPassword != "" || c.DBMaxConns != 10 || c.DBMinConns != 0 || c.DBConnectTimeout != 5*time.Second || c.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 }
@@ -77,11 +77,30 @@ func TestOverrides(t *testing.T) {
 	t.Setenv("SHUTDOWN_TIMEOUT", "15s")
 	t.Setenv("GOOGLE_SPREADSHEET_ID", "another-spreadsheet")
 	t.Setenv("GOOGLE_SHEET_RANGE", "Other!A1:AM")
+	t.Setenv("BOOTSTRAP_ADMIN_NAME", "Administrator")
+	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "admin-password-123")
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.AppEnv != "production" || c.HTTPAddr != "127.0.0.1:9000" || c.LogLevel.String() != "DEBUG" || c.SpreadsheetID != "another-spreadsheet" || c.SheetRange != "Other!A1:AM" || c.DBMaxConns != 20 || c.DBMinConns != 2 || c.DBConnectTimeout != 3*time.Second || c.ShutdownTimeout != 15*time.Second {
+	if c.AppEnv != "production" || c.HTTPAddr != "127.0.0.1:9000" || c.LogLevel.String() != "DEBUG" || c.SpreadsheetID != "another-spreadsheet" || c.SheetRange != "Other!A1:AM" || c.BootstrapAdminName != "Administrator" || c.BootstrapAdminPassword != "admin-password-123" || c.DBMaxConns != 20 || c.DBMinConns != 2 || c.DBConnectTimeout != 3*time.Second || c.ShutdownTimeout != 15*time.Second {
 		t.Fatalf("overrides not applied: %+v", c)
+	}
+}
+
+func TestLoadBootstrapAdmin(t *testing.T) {
+	defaults(t)
+	c, err := LoadBootstrapAdmin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BootstrapAdminName != "Admin" || c.BootstrapAdminPassword != "" || c.DatabaseURL == "" || c.DBMaxConns != 10 || c.DBMinConns != 0 || c.DBConnectTimeout != 5*time.Second {
+		t.Fatalf("unexpected bootstrap config: %+v", c)
+	}
+	t.Setenv("BOOTSTRAP_ADMIN_NAME", "Administrator")
+	t.Setenv("BOOTSTRAP_ADMIN_PASSWORD", "admin-password-123")
+	c, err = LoadBootstrapAdmin()
+	if err != nil || c.BootstrapAdminName != "Administrator" || c.BootstrapAdminPassword != "admin-password-123" {
+		t.Fatalf("bootstrap config override: %+v %v", c, err)
 	}
 }

@@ -1,5 +1,5 @@
 -- +goose Up
-CREATE TYPE user_role AS ENUM ('USER_A', 'USER_B', 'OS');
+CREATE TYPE user_role AS ENUM ('USER_A', 'USER_B', 'OS', 'ADMIN');
 CREATE TYPE booking_status AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED');
 CREATE TYPE booking_type AS ENUM ('ONE_DAY', 'CONTINUOUS_DAYS', 'WEEKLY', 'CUSTOM');
 

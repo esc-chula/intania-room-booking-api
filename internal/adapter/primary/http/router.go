@@ -8,6 +8,7 @@ import (
 	"example.com/chula-room-booking/internal/adapter/primary/http/health"
 	requestmiddleware "example.com/chula-room-booking/internal/adapter/primary/http/middleware"
 	"example.com/chula-room-booking/internal/adapter/primary/http/sheetbooking"
+	"example.com/chula-room-booking/internal/core/domain/user"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
@@ -36,7 +37,7 @@ func NewRouter(config RouterConfig) http.Handler {
 		})
 	}
 	if config.Auth != nil && config.SheetBookings != nil {
-		r.With(config.Auth.Authenticate).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
+		r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
 	}
 	if config.AppEnv == "development" {
 		r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))

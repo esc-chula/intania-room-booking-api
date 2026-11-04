@@ -3,9 +3,10 @@
 Go backend foundation using Chi v5, pgx v5/pgxpool, PostgreSQL, log/slog,
 Swaggo v1, and Goose SQL migrations. The first migration defines users,
 buildings, rooms, bookings, room scheduling, and audit logs. Email/password
-registration and login use stateless JWTs. An OS-only endpoint reads legacy
-booking rows live from Google Sheets. OAuth, native booking APIs, and equipment
-features are not implemented yet.
+registration and login use stateless JWTs. An explicit command creates the
+initial ADMIN account, and an OS/admin-only endpoint reads legacy booking rows
+live from Google Sheets. OAuth, native booking APIs, and equipment features are
+not implemented yet.
 
 ```text
 HTTP handler -> Domain service -> Domain port
@@ -40,7 +41,8 @@ make run
 When running `go run ./cmd/api` directly, export environment variables yourself.
 The application does not read `.env` or fall back to `.env.example`.
 `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_SPREADSHEET_ID`, and `GOOGLE_SHEET_RANGE`
-are required. JWT_SECRET must contain at least
+are required. `BOOTSTRAP_ADMIN_PASSWORD` is required when running
+`make bootstrap-admin` against a database without an ADMIN. JWT_SECRET must contain at least
 32 bytes excluding surrounding whitespace; use an independently generated
 random secret in production (for example, `openssl rand -hex 32`). The example
 secret is local-only. Other settings default to the values in `.env.example`.
@@ -192,6 +194,28 @@ there is no refresh, logout/revocation, password reset, email verification,
 or role-management API. An email/password registration does not establish
 university affiliation.
 
+## Bootstrap administrator
+
+`make bootstrap-admin` is an explicit deployment or local-development command.
+It connects through `DATABASE_URL`; the database may be on another machine as
+long as the command runner has network access and valid credentials. If no
+`ADMIN` exists, it creates active `Admin` with email
+`admin@gmail.com` and a bcrypt cost-12 hash of
+`BOOTSTRAP_ADMIN_PASSWORD`. Set that variable to an 8–72-byte password before
+running the command. `BOOTSTRAP_ADMIN_NAME` changes the display name and
+defaults to `Admin`.
+
+Once any ADMIN exists, the command does nothing and its account is not updated.
+If `admin@gmail.com` is already a non-admin account, the command fails
+instead of changing its role or password. Do not commit the bootstrap password.
+`ADMIN` is the shared authorization middleware's super-role, so it is accepted
+by every role-guarded route.
+
+```sh
+make migrate-up
+make bootstrap-admin
+```
+
 ## OS spreadsheet bookings
 
 `GET /api/v1/admin/sheet-bookings` reads the configured Google Sheet on every
@@ -203,7 +227,7 @@ There is no PostgreSQL import, pagination, or filtering. An empty sheet returns
 development-only.
 
 The endpoint requires `Authorization: Bearer <token>` for a currently active OS
-user. Missing or invalid tokens return 401, other roles return 403, and a
+or ADMIN user. Missing or invalid tokens return 401, other roles return 403, and a
 Google Sheets fetch failure returns 502. Responses are JSON with
 `Cache-Control: no-store`.
 

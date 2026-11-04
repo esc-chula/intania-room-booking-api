@@ -107,6 +107,7 @@ func TestRoutes(t *testing.T) {
 
 type authRepository struct {
 	credentials auth.Credentials
+	admin       user.User
 	err         error
 }
 
@@ -119,6 +120,16 @@ func (r *authRepository) CreateUser(_ context.Context, name, email, hash string)
 	}
 	r.credentials = auth.Credentials{User: user.User{ID: "11111111-1111-4111-8111-111111111111", Name: name, Email: email, Role: "USER_A", Active: true}, PasswordHash: hash}
 	return r.credentials.User, nil
+}
+func (r *authRepository) CreateAdmin(_ context.Context, name, email, _ string) (user.User, error) {
+	if r.err != nil {
+		return user.User{}, r.err
+	}
+	if r.credentials.User.Email == email || r.admin.ID != "" {
+		return user.User{}, auth.ErrEmailExists
+	}
+	r.admin = user.User{ID: "admin-id", Name: name, Email: email, Role: user.RoleAdmin, Active: true}
+	return r.admin, nil
 }
 func (r *authRepository) FindCredentialsByEmail(_ context.Context, email string) (auth.Credentials, error) {
 	if r.err != nil {
@@ -137,6 +148,15 @@ func (r *authRepository) FindUserByID(_ context.Context, id string) (user.User, 
 		return user.User{}, auth.ErrNotFound
 	}
 	return r.credentials.User, nil
+}
+func (r *authRepository) FindAdmin(_ context.Context) (user.User, error) {
+	if r.err != nil {
+		return user.User{}, r.err
+	}
+	if r.admin.ID == "" {
+		return user.User{}, auth.ErrNotFound
+	}
+	return r.admin, nil
 }
 
 func TestAuthRoutes(t *testing.T) {
@@ -221,7 +241,7 @@ func TestAuthRoutes(t *testing.T) {
 					t.Fatalf("%s: got %d want %d: %s", tc.path, w.Code, tc.status, w.Body.String())
 				}
 			}
-			repo.credentials.User.Role = "OS"
+			repo.credentials.User.Role = user.RoleOS
 			w = request("GET", "/api/v1/auth/me", "", "Bearer "+loggedIn.AccessToken)
 			if w.Code != 200 || !strings.Contains(w.Body.String(), `"role":"OS"`) {
 				t.Fatal("role change not reflected")
@@ -308,19 +328,23 @@ func TestSheetBookingRoutes(t *testing.T) {
 			if fetches != 0 {
 				t.Fatal("fetched sheet before authorization")
 			}
-			repo.credentials.User.Role = "USER_A"
+			repo.credentials.User.Role = user.RoleUserA
 			if w := request("Bearer " + accessToken); w.Code != http.StatusForbidden {
 				t.Fatalf("non-OS request: %d %s", w.Code, w.Body.String())
 			}
 			if fetches != 0 {
 				t.Fatal("fetched sheet for non-OS user")
 			}
-			repo.credentials.User.Role = "OS"
+			repo.credentials.User.Role = user.RoleOS
 			for i := 1; i <= 2; i++ {
 				w := request("Bearer " + accessToken)
 				if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"name":"Requester"`) || fetches != i {
 					t.Fatalf("OS request: %d %s, fetches=%d", w.Code, w.Body.String(), fetches)
 				}
+			}
+			repo.credentials.User.Role = user.RoleAdmin
+			if w := request("Bearer " + accessToken); w.Code != http.StatusOK || fetches != 3 {
+				t.Fatalf("admin request: %d %s, fetches=%d", w.Code, w.Body.String(), fetches)
 			}
 			upstreamError = true
 			w := request("Bearer " + accessToken)

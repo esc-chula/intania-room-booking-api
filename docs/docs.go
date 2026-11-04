@@ -22,7 +22,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Requires a currently active OS user. Reads the configured Google Sheet on every request and returns seven string fields per row.",
+                "description": "Requires a currently active OS or ADMIN user. Reads the configured Google Sheet on every request and returns seven string fields per row.",
                 "produces": [
                     "application/json"
                 ],

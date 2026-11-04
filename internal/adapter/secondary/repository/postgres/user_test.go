@@ -17,7 +17,7 @@ import (
 
 // These tests use an isolated schema, never the application's users table.
 // Opt in with TEST_DATABASE_URL pointing to a disposable local PostgreSQL DB.
-func testPool(t *testing.T) *pgxpool.Pool {
+func testPool(t *testing.T, legacySchema bool) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -50,7 +50,11 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if _, err := pool.Exec(ctx, migration(t, "00001_init_core_schema.sql", "Up")); err != nil {
+	initialSchema := migration(t, "00001_init_core_schema.sql", "Up")
+	if legacySchema {
+		initialSchema = strings.Replace(initialSchema, ", 'ADMIN'", "", 1)
+	}
+	if _, err := pool.Exec(ctx, initialSchema); err != nil {
 		t.Fatal(err)
 	}
 	return pool
@@ -73,7 +77,7 @@ func migration(t *testing.T, filename, direction string) string {
 }
 
 func TestUsersIntegration(t *testing.T) {
-	pool := testPool(t)
+	pool := testPool(t, false)
 	ctx := context.Background()
 	var legacyID string
 	if err := pool.QueryRow(ctx, `INSERT INTO users (id, email, active) VALUES (gen_random_uuid(), ' LEGACY@Example.com ', NULL) RETURNING id::text`).Scan(&legacyID); err != nil {
@@ -161,7 +165,7 @@ func TestUsersIntegration(t *testing.T) {
 }
 
 func TestNormalizedEmailCollisionMigration(t *testing.T) {
-	pool := testPool(t)
+	pool := testPool(t, false)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email) VALUES (gen_random_uuid(), 'Test@example.com'), (gen_random_uuid(), 'test@example.com')`); err != nil {
 		t.Fatal(err)
@@ -173,4 +177,35 @@ func TestNormalizedEmailCollisionMigration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("collision changed users: %d %v", count, err)
 	}
+}
+
+func TestAdminRoleMigrations(t *testing.T) {
+	t.Run("fresh schema includes admin", func(t *testing.T) {
+		pool := testPool(t, false)
+		var role string
+		if err := pool.QueryRow(context.Background(), `SELECT 'ADMIN'::user_role::text`).Scan(&role); err != nil || role != "ADMIN" {
+			t.Fatalf("admin role missing: %q %v", role, err)
+		}
+	})
+	t.Run("upgrade adds admin", func(t *testing.T) {
+		pool := testPool(t, true)
+		ctx := context.Background()
+		if _, err := pool.Exec(ctx, migration(t, "00002_add_password_auth.sql", "Up")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, migration(t, "00003_add_admin_role.sql", "Up")); err != nil {
+			t.Fatal(err)
+		}
+		repo := NewUsers(pool)
+		created, err := repo.CreateAdmin(ctx, "Admin", auth.BootstrapAdminEmail, "hash")
+		if err != nil || created.Role != "ADMIN" || !created.Active {
+			t.Fatalf("create admin: %+v %v", created, err)
+		}
+		if found, err := repo.FindAdmin(ctx); err != nil || found != created {
+			t.Fatalf("find admin: %+v %v", found, err)
+		}
+		if _, err := pool.Exec(ctx, migration(t, "00003_add_admin_role.sql", "Down")); err != nil {
+			t.Fatalf("irreversible down migration should be a no-op: %v", err)
+		}
+	})
 }

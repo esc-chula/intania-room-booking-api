@@ -13,12 +13,15 @@ import (
 
 const TokenLifetime = time.Hour
 const passwordCost = 12
+const BootstrapAdminEmail = "admin@gmail.com"
 
 var (
-	ErrInvalidInput = errors.New("invalid input")
-	ErrEmailExists  = errors.New("email already registered")
-	ErrNotFound     = errors.New("user not found")
-	ErrUnauthorized = errors.New("invalid credentials or token")
+	ErrInvalidInput              = errors.New("invalid input")
+	ErrEmailExists               = errors.New("email already registered")
+	ErrNotFound                  = errors.New("user not found")
+	ErrUnauthorized              = errors.New("invalid credentials or token")
+	ErrBootstrapAdminEmailExists = errors.New("bootstrap admin email belongs to a non-admin user")
+	ErrBootstrapAdminPassword    = errors.New("BOOTSTRAP_ADMIN_PASSWORD must be 8-72 bytes when no ADMIN exists")
 )
 
 type Credentials struct {
@@ -28,8 +31,10 @@ type Credentials struct {
 
 type Repository interface {
 	CreateUser(context.Context, string, string, string) (user.User, error)
+	CreateAdmin(context.Context, string, string, string) (user.User, error)
 	FindCredentialsByEmail(context.Context, string) (Credentials, error)
 	FindUserByID(context.Context, string) (user.User, error)
+	FindAdmin(context.Context) (user.User, error)
 }
 
 type Tokens interface {
@@ -84,6 +89,41 @@ func (s *Service) Register(ctx context.Context, name, email, password string) (R
 		return Result{}, err
 	}
 	return s.result(u)
+}
+
+// BootstrapAdmin creates the fixed initial administrator only when no admin exists.
+func (s *Service) BootstrapAdmin(ctx context.Context, name, password string) (bool, error) {
+	return BootstrapAdmin(ctx, s.repository, name, password)
+}
+
+// BootstrapAdmin creates the fixed initial administrator only when no admin exists.
+func BootstrapAdmin(ctx context.Context, repository Repository, name, password string) (bool, error) {
+	if _, err := repository.FindAdmin(ctx); err == nil {
+		return false, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return false, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, ErrInvalidInput
+	}
+	if !validPassword(password) {
+		return false, ErrBootstrapAdminPassword
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), passwordCost)
+	if err != nil {
+		return false, err
+	}
+	if _, err := repository.CreateAdmin(ctx, name, BootstrapAdminEmail, string(hash)); err != nil {
+		if errors.Is(err, ErrEmailExists) {
+			if _, findErr := repository.FindAdmin(ctx); findErr == nil {
+				return false, nil
+			}
+			return false, ErrBootstrapAdminEmailExists
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *Service) Login(ctx context.Context, email, password string) (Result, error) {

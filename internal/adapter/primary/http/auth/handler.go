@@ -136,6 +136,30 @@ func (h *Handler) Authenticate(next http.Handler) http.Handler {
 	})
 }
 
+// RequireRoles authorizes a current authenticated user for a set of roles.
+func (h *Handler) RequireRoles(roles ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u, ok := CurrentUser(r.Context())
+			if !ok {
+				h.failure(w, r, domainauth.ErrUnauthorized)
+				return
+			}
+			if u.Role == user.RoleAdmin {
+				next.ServeHTTP(w, r)
+				return
+			}
+			for _, role := range roles {
+				if u.Role == role {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			respond(w, http.StatusForbidden, errorResponse{Error: "forbidden"})
+		})
+	}
+}
+
 func decode(w http.ResponseWriter, r *http.Request, target any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	decoder := json.NewDecoder(r.Body)

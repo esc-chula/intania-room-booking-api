@@ -4,7 +4,7 @@
 
 The Chula Room Booking API is a Go modular monolith. Keep it simple, maintainable, and easy to change. Use pragmatic Hexagonal Architecture / Ports & Adapters to separate responsibilities without unnecessary interfaces, duplicate models, mapping layers, or framework abstractions.
 
-Currently implemented: environment configuration, structured logging, PostgreSQL connectivity, health/readiness endpoints, development Swagger, CI checks, the core schema, email/password registration/login with stateless JWT authentication, and an OS-only live Google Sheets booking read endpoint. Auth/user and sheet-booking domain packages, the PostgreSQL user repository, and the Google Sheets reader are implemented; other domain packages remain placeholders. Chula SSO, native booking APIs, sessions, and equipment features are not implemented. Treat the future rules below as design requirements, not existing functionality.
+Currently implemented: environment configuration, structured logging, PostgreSQL connectivity, health/readiness endpoints, development Swagger, CI checks, the core schema, email/password registration/login with stateless JWT authentication, an explicit ADMIN bootstrap command, and an OS/admin-only live Google Sheets booking read endpoint. Auth/user and sheet-booking domain packages, the PostgreSQL user repository, and the Google Sheets reader are implemented; other domain packages remain placeholders. Chula SSO, native booking APIs, sessions, and equipment features are not implemented. Treat the future rules below as design requirements, not existing functionality.
 
 ## Project Structure & Module Organization
 
@@ -71,6 +71,7 @@ make run
 | `make tools` | Install pinned Swaggo and Goose binaries into `.bin/`. |
 | `make migrate-up` | Apply pending migrations using `DATABASE_URL`. |
 | `make migrate-down` | Roll back the latest migration; inspect its impact first. |
+| `make bootstrap-admin` | Create the fixed initial ADMIN user only when no ADMIN exists. |
 | `make run` | Source and export `.env`, then run `go run ./cmd/api`. |
 | `make fmt` / `make fmt-check` | Apply or check gofmt formatting. |
 | `make vet` / `make test` | Run `go vet ./...` / `go test ./...`. |
@@ -105,7 +106,7 @@ With the API already running, stopping PostgreSQL should leave `/healthz` at 200
 
 ## Database & Migration Rules
 
-Use explicit Goose migrations under `db/migrations/`, following names such as `00001_init_core_schema.sql` and `00002_add_password_auth.sql`, with `-- +goose Up` and `-- +goose Down` sections. Run migrations separately during development/deployment; never auto-run them at API startup.
+Use explicit Goose migrations under `db/migrations/`, following names such as `00001_init_core_schema.sql` and `00002_add_password_auth.sql`, with `-- +goose Up` and `-- +goose Down` sections. Run migrations separately during development/deployment; never auto-run them at API startup. PostgreSQL enum-value additions are irreversible, so their Down section must be a documented no-op.
 
 The initial schema includes users, buildings, rooms, booking requests, booking occurrences, room rules, opening hours, date overrides, and audit logs. Password authentication adds nullable password hashes and a unique normalized-email index in a separate migration; existing email collisions fail migration rather than merge users. Preserve existing relationships and constraints unless a requirement explicitly changes them.
 
@@ -123,7 +124,7 @@ Important OS actions should append audit history: approval, rejection, cancellat
 
 ## HTTP, Swagger & Health Contracts
 
-Business routes belong under `/api/v1`. Authentication provides POST `/api/v1/auth/register`, POST `/api/v1/auth/login`, and protected GET `/api/v1/auth/me`. The OS-only GET `/api/v1/admin/sheet-bookings` fetches legacy rows live from Google Sheets; native room and booking routes remain unimplemented. The `/api/v1/admin` prefix provides no authorization: explicitly verify the authenticated user's current OS role.
+Business routes belong under `/api/v1`. Authentication provides POST `/api/v1/auth/register`, POST `/api/v1/auth/login`, and protected GET `/api/v1/auth/me`. The OS/admin-only GET `/api/v1/admin/sheet-bookings` fetches legacy rows live from Google Sheets; native room and booking routes remain unimplemented. The `/api/v1/admin` prefix provides no authorization: explicitly verify the authenticated user's current OS role through the shared role middleware; that middleware always permits ADMIN as the super-role.
 
 Whenever endpoint behavior changes, update Swaggo comments, run `make swagger`, and commit `docs/docs.go`, `docs/swagger.json`, and `docs/swagger.yaml`. Comments document the contract; business logic stays in code. CI detects stale generation, while tests/review must verify annotations match actual behavior.
 
@@ -138,7 +139,7 @@ Both probes use `Cache-Control: no-store`. Startup requires a successful Postgre
 
 ## Authentication, Middleware & Logging
 
-The latest team decision replaces the older server-side session design with stateless JWTs. Email/password auth is available in all environments; registration creates active USER_A users. Passwords use bcrypt cost 12 and accept 8-72 bytes. Login and registration issue one-hour HS256 bearer tokens with UUID subject, issue/expiry times, issuer, and audience. Tokens contain no personal data or role. Validate tokens and load the current active user from PostgreSQL on each protected request; no session storage is used. Disabled/deleted users are rejected and role changes apply immediately. JWT_SECRET requires at least 32 non-padding bytes. Client logout discards the token; refresh, server-side revocation, password reset, email verification, and OAuth are not implemented. Future Chula SSO/OAuth can reuse user resolution and JWT issuance.
+The latest team decision replaces the older server-side session design with stateless JWTs. Email/password auth is available in all environments; registration creates active USER_A users. Passwords use bcrypt cost 12 and accept 8-72 bytes. The explicit `make bootstrap-admin` command creates the active `admin@gmail.com` ADMIN only when no ADMIN exists, using `BOOTSTRAP_ADMIN_PASSWORD`; it never changes an existing account. Login and registration issue one-hour HS256 bearer tokens with UUID subject, issue/expiry times, issuer, and audience. Tokens contain no personal data or role. Validate tokens and load the current active user from PostgreSQL on each protected request; no session storage is used. Disabled/deleted users are rejected and role changes apply immediately. JWT_SECRET requires at least 32 non-padding bytes. Client logout discards the token; refresh, server-side revocation, password reset, email verification, and OAuth are not implemented. Future Chula SSO/OAuth can reuse user resolution and JWT issuance.
 
 Chi middleware handles infrastructure concerns: request IDs, recovery, structured request logs, bearer authentication, and future authorization. Auth handlers reject unknown/protected fields and bodies over 16 KiB, return JSON errors, and use Cache-Control: no-store. Domain-specific booking decisions belong in services.
 
@@ -155,6 +156,8 @@ Configuration comes from environment variables. `.env.example` documents local v
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error`; default `info`. |
 | `DATABASE_URL` | Required PostgreSQL connection string. |
 | `JWT_SECRET` | Required signing secret; at least 32 bytes excluding surrounding whitespace. |
+| `BOOTSTRAP_ADMIN_NAME` | Initial ADMIN display name; defaults to `Admin`. |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Required by `make bootstrap-admin` only when no ADMIN exists; 8–72 bytes and never stored or logged in plain text. |
 | `GOOGLE_SPREADSHEET_ID` / `GOOGLE_SHEET_RANGE` | Required Google Sheets source and range for the live OS booking endpoint. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Optional standard ADC path for local credentials; deployed workloads may use an attached identity. |
 | `DB_MAX_CONNS` / `DB_MIN_CONNS` | Defaults 10 / 0; maximum positive, minimum between zero and maximum. |

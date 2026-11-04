@@ -11,8 +11,10 @@ import (
 )
 
 type memoryRepository struct {
-	credentials Credentials
-	err         error
+	credentials  Credentials
+	admin        Credentials
+	adminCreates int
+	err          error
 }
 
 func (r *memoryRepository) CreateUser(_ context.Context, name, email, hash string) (user.User, error) {
@@ -22,8 +24,19 @@ func (r *memoryRepository) CreateUser(_ context.Context, name, email, hash strin
 	if r.credentials.User.Email == email {
 		return user.User{}, ErrEmailExists
 	}
-	r.credentials = Credentials{User: user.User{ID: "user-id", Name: name, Email: email, Role: "USER_A", Active: true}, PasswordHash: hash}
+	r.credentials = Credentials{User: user.User{ID: "user-id", Name: name, Email: email, Role: user.RoleUserA, Active: true}, PasswordHash: hash}
 	return r.credentials.User, nil
+}
+func (r *memoryRepository) CreateAdmin(_ context.Context, name, email, hash string) (user.User, error) {
+	if r.err != nil {
+		return user.User{}, r.err
+	}
+	if r.credentials.User.Email == email || r.admin.User.ID != "" {
+		return user.User{}, ErrEmailExists
+	}
+	r.adminCreates++
+	r.admin = Credentials{User: user.User{ID: "admin-id", Name: name, Email: email, Role: user.RoleAdmin, Active: true}, PasswordHash: hash}
+	return r.admin.User, nil
 }
 func (r *memoryRepository) FindCredentialsByEmail(_ context.Context, email string) (Credentials, error) {
 	if r.err != nil {
@@ -43,6 +56,15 @@ func (r *memoryRepository) FindUserByID(_ context.Context, id string) (user.User
 	}
 	return r.credentials.User, nil
 }
+func (r *memoryRepository) FindAdmin(_ context.Context) (user.User, error) {
+	if r.err != nil {
+		return user.User{}, r.err
+	}
+	if r.admin.User.ID == "" {
+		return user.User{}, ErrNotFound
+	}
+	return r.admin.User, nil
+}
 
 type testTokens struct{}
 
@@ -52,6 +74,51 @@ func (testTokens) Verify(token string) (string, error) {
 		return "", ErrUnauthorized
 	}
 	return token, nil
+}
+
+func TestBootstrapAdmin(t *testing.T) {
+	ctx := context.Background()
+	t.Run("creates once", func(t *testing.T) {
+		repo := &memoryRepository{}
+		s, err := New(repo, testTokens{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		created, err := s.BootstrapAdmin(ctx, " Admin ", "admin-password-123")
+		if err != nil || !created {
+			t.Fatalf("bootstrap: created=%v err=%v", created, err)
+		}
+		if repo.admin.User.Name != "Admin" || repo.admin.User.Email != BootstrapAdminEmail || repo.admin.User.Role != user.RoleAdmin || !repo.admin.User.Active || repo.adminCreates != 1 {
+			t.Fatalf("unexpected admin: %+v", repo.admin.User)
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(repo.admin.PasswordHash), []byte("admin-password-123")); err != nil {
+			t.Fatal(err)
+		}
+		if created, err := s.BootstrapAdmin(ctx, "", ""); err != nil || created || repo.adminCreates != 1 {
+			t.Fatalf("existing admin changed: created=%v err=%v creates=%d", created, err, repo.adminCreates)
+		}
+	})
+	t.Run("requires valid password only when absent", func(t *testing.T) {
+		s, err := New(&memoryRepository{}, testTokens{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, password := range []string{"", "short", strings.Repeat("x", 73)} {
+			if _, err := s.BootstrapAdmin(ctx, "Admin", password); !errors.Is(err, ErrBootstrapAdminPassword) {
+				t.Fatalf("invalid bootstrap password accepted: %q: %v", password, err)
+			}
+		}
+	})
+	t.Run("does not overwrite matching user", func(t *testing.T) {
+		repo := &memoryRepository{credentials: Credentials{User: user.User{Email: BootstrapAdminEmail, Role: user.RoleUserA}}}
+		s, err := New(repo, testTokens{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.BootstrapAdmin(ctx, "Admin", "admin-password-123"); !errors.Is(err, ErrBootstrapAdminEmailExists) {
+			t.Fatalf("email collision: %v", err)
+		}
+	})
 }
 
 func TestAuthenticationFlow(t *testing.T) {
