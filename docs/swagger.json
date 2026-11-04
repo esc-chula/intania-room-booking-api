@@ -1,13 +1,65 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "Email/password authentication with one-hour stateless bearer JWTs. OAuth integration is planned.",
+        "description": "Email/password authentication with one-hour stateless bearer JWTs and OS-only live spreadsheet bookings. OAuth integration is planned.",
         "title": "Chula Room Booking API",
         "contact": {},
         "version": "0.1.0"
     },
     "basePath": "/",
     "paths": {
+        "/api/v1/admin/sheet-bookings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Requires a currently active OS user. Reads the configured Google Sheet on every request and returns seven string fields per row.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sheet-bookings"
+                ],
+                "summary": "List OS spreadsheet bookings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/sheetbooking.Booking"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/login": {
             "post": {
                 "description": "Returns a one-hour bearer JWT. Invalid credentials, disabled accounts, and accounts without passwords receive the same error.",
@@ -260,6 +312,40 @@
             "type": "object",
             "properties": {
                 "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "sheetbooking.Booking": {
+            "type": "object",
+            "properties": {
+                "end_date": {
+                    "type": "string"
+                },
+                "end_time": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "room": {
+                    "type": "string"
+                },
+                "start_date": {
+                    "type": "string"
+                },
+                "start_time": {
+                    "type": "string"
+                }
+            }
+        },
+        "sheetbooking.errorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
                     "type": "string"
                 }
             }

@@ -3,14 +3,15 @@
 Go backend foundation using Chi v5, pgx v5/pgxpool, PostgreSQL, log/slog,
 Swaggo v1, and Goose SQL migrations. The first migration defines users,
 buildings, rooms, bookings, room scheduling, and audit logs. Email/password
-registration and login use stateless JWTs. OAuth, booking APIs, and equipment
+registration and login use stateless JWTs. An OS-only endpoint reads legacy
+booking rows live from Google Sheets. OAuth, native booking APIs, and equipment
 features are not implemented yet.
 
 ```text
 HTTP handler -> Domain service -> Domain port
                                      ^
                                      |
-                            PostgreSQL adapter
+                         PostgreSQL / Google Sheets adapter
 
 cmd/api wires config -> logger -> pgxpool -> repositories/services -> handlers -> Chi
 ```
@@ -38,7 +39,8 @@ make run
 `make run` sources the local `.env` as shell assignments and exports them.
 When running `go run ./cmd/api` directly, export environment variables yourself.
 The application does not read `.env` or fall back to `.env.example`.
-`DATABASE_URL` and `JWT_SECRET` are required. JWT_SECRET must contain at least
+`DATABASE_URL`, `JWT_SECRET`, `GOOGLE_SPREADSHEET_ID`, and `GOOGLE_SHEET_RANGE`
+are required. JWT_SECRET must contain at least
 32 bytes excluding surrounding whitespace; use an independently generated
 random secret in production (for example, `openssl rand -hex 32`). The example
 secret is local-only. Other settings default to the values in `.env.example`.
@@ -60,9 +62,10 @@ the volume. No migrations run during startup.
 - Development docs: http://localhost:8080/swagger/index.html and
   http://localhost:8080/swagger/doc.json. Both return 404 in production.
 - All unknown routes, including `/api/v1/rooms`, return 404. Future business
-  routes will use `/api/v1`. Swagger documents probes and authentication; its
+  routes will use `/api/v1`. Swagger documents probes, authentication, and the
+  OS spreadsheet endpoint; its
   base path is `/` so their URLs are accurate. Business route annotations
-  must include `/api/v1` in their paths. This changes the Swagger base path
+must include `/api/v1` in their paths. This changes the Swagger base path
   specified in the Phase 0 initialization plan.
 
 The process fails startup if PostgreSQL is unavailable. SIGINT/SIGTERM drain
@@ -108,12 +111,18 @@ docker build -t chula-room-booking-api .
 docker run --rm -p 127.0.0.1:8080:8080 \
   -e DATABASE_URL='postgres://USER:PASSWORD@DB_HOST:5432/DB_NAME?sslmode=verify-full' \
   -e JWT_SECRET="$JWT_SECRET" \
+  -e GOOGLE_SPREADSHEET_ID='YOUR_SPREADSHEET_ID' \
+  -e GOOGLE_SHEET_RANGE='จองห้อง!A9:AM' \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-credentials.json \
+  -v /absolute/path/to/credentials.json:/run/secrets/google-credentials.json:ro \
   chula-room-booking-api
 ```
 
 The runtime is non-root with CA certificates; APP_ENV defaults to production.
 Supply a DB host reachable from the container (localhost points to the container).
-No environment files or credentials are copied into the image.
+The credential mount above is for a local container; deployed workloads can use
+an attached identity instead. No environment files or credentials are copied
+into the image.
 
 Install the pinned tools and migrate the database separately from API startup.
 The migration targets use `DATABASE_URL` from the environment, or from `.env`
@@ -182,6 +191,37 @@ after one hour; log in again afterward. Client logout discards the token;
 there is no refresh, logout/revocation, password reset, email verification,
 or role-management API. An email/password registration does not establish
 university affiliation.
+
+## OS spreadsheet bookings
+
+`GET /api/v1/admin/sheet-bookings` reads the configured Google Sheet on every
+request and returns an array of rows with `id`, `name`, `room`, `start_date`,
+`end_date`, `start_time`, and `end_time` string fields. It uses columns A, F, N,
+P, Q, R, and S from the configured range; short rows produce empty strings.
+There is no PostgreSQL import, pagination, or filtering. An empty sheet returns
+`[]`. The endpoint is available in development and production; Swagger UI is
+development-only.
+
+The endpoint requires `Authorization: Bearer <token>` for a currently active OS
+user. Missing or invalid tokens return 401, other roles return 403, and a
+Google Sheets fetch failure returns 502. Responses are JSON with
+`Cache-Control: no-store`.
+
+Set `GOOGLE_SPREADSHEET_ID` to the spreadsheet ID and `GOOGLE_SHEET_RANGE` to
+the range, for example `GOOGLE_SHEET_RANGE='จองห้อง!A9:AM'` in `.env`. Google
+Application Default Credentials supply read-only Sheets API access. For local
+development, set `GOOGLE_APPLICATION_CREDENTIALS` to an absolute path to a
+service-account JSON file outside the repository, or use your local ADC login.
+In a deployed environment, attach a suitable identity; when running the
+container with a local credential file, mount it and set the variable to its
+path inside the container. Grant that identity Viewer access to the sheet.
+Credential files and values must not be committed. The prototype's
+`SERVER_ADDR` is replaced by this API's `HTTP_ADDR`.
+
+```sh
+curl -i http://localhost:8080/api/v1/admin/sheet-bookings \
+  -H 'Authorization: Bearer YOUR_OS_ACCESS_TOKEN'
+```
 
 PostgreSQL integration tests are opt-in and create/drop temporary schemas;
 they never use the application's users table. Point them at a disposable local

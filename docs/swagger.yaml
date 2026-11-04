@@ -46,6 +46,28 @@ definitions:
       status:
         type: string
     type: object
+  sheetbooking.Booking:
+    properties:
+      end_date:
+        type: string
+      end_time:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      room:
+        type: string
+      start_date:
+        type: string
+      start_time:
+        type: string
+    type: object
+  sheetbooking.errorResponse:
+    properties:
+      error:
+        type: string
+    type: object
   user.User:
     properties:
       email:
@@ -59,11 +81,45 @@ definitions:
     type: object
 info:
   contact: {}
-  description: Email/password authentication with one-hour stateless bearer JWTs.
-    OAuth integration is planned.
+  description: Email/password authentication with one-hour stateless bearer JWTs and
+    OS-only live spreadsheet bookings. OAuth integration is planned.
   title: Chula Room Booking API
   version: 0.1.0
 paths:
+  /api/v1/admin/sheet-bookings:
+    get:
+      description: Requires a currently active OS user. Reads the configured Google
+        Sheet on every request and returns seven string fields per row.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/sheetbooking.Booking'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+      security:
+      - BearerAuth: []
+      summary: List OS spreadsheet bookings
+      tags:
+      - sheet-bookings
   /api/v1/auth/login:
     post:
       consumes:

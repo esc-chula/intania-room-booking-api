@@ -14,16 +14,19 @@ import (
 	httpadapter "example.com/chula-room-booking/internal/adapter/primary/http"
 	httpauth "example.com/chula-room-booking/internal/adapter/primary/http/auth"
 	"example.com/chula-room-booking/internal/adapter/primary/http/health"
+	httpsheetbooking "example.com/chula-room-booking/internal/adapter/primary/http/sheetbooking"
 	"example.com/chula-room-booking/internal/adapter/secondary/infrastructure/database"
+	"example.com/chula-room-booking/internal/adapter/secondary/infrastructure/googlesheets"
 	"example.com/chula-room-booking/internal/adapter/secondary/infrastructure/token"
 	"example.com/chula-room-booking/internal/adapter/secondary/repository/postgres"
 	"example.com/chula-room-booking/internal/config"
 	"example.com/chula-room-booking/internal/core/domain/auth"
+	"example.com/chula-room-booking/internal/core/domain/sheetbooking"
 )
 
 // @title Chula Room Booking API
 // @version 0.1.0
-// @description Email/password authentication with one-hour stateless bearer JWTs. OAuth integration is planned.
+// @description Email/password authentication with one-hour stateless bearer JWTs and OS-only live spreadsheet bookings. OAuth integration is planned.
 // @BasePath /
 // @securityDefinitions.apikey BearerAuth
 // @in header
@@ -58,11 +61,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	sheetReader, err := googlesheets.New(ctx, c.SpreadsheetID, c.SheetRange)
+	if err != nil {
+		return err
+	}
 	router := httpadapter.NewRouter(httpadapter.RouterConfig{
-		Auth:   httpauth.New(authService, logger),
-		Health: healthHandler,
-		Logger: logger,
-		AppEnv: c.AppEnv,
+		Auth:          httpauth.New(authService, logger),
+		Health:        healthHandler,
+		SheetBookings: httpsheetbooking.New(sheetbooking.New(sheetReader), logger),
+		Logger:        logger,
+		AppEnv:        c.AppEnv,
 	})
 	server := &http.Server{
 		Addr:              c.HTTPAddr,

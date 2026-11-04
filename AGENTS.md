@@ -4,7 +4,7 @@
 
 The Chula Room Booking API is a Go modular monolith. Keep it simple, maintainable, and easy to change. Use pragmatic Hexagonal Architecture / Ports & Adapters to separate responsibilities without unnecessary interfaces, duplicate models, mapping layers, or framework abstractions.
 
-Currently implemented: environment configuration, structured logging, PostgreSQL connectivity, health/readiness endpoints, development Swagger, CI checks, the core schema, and email/password registration/login with stateless JWT authentication. Auth/user domain packages and the PostgreSQL user repository are implemented; other domain packages remain placeholders. Chula SSO, booking APIs, sessions, and equipment features are not implemented. Treat the future rules below as design requirements, not existing functionality.
+Currently implemented: environment configuration, structured logging, PostgreSQL connectivity, health/readiness endpoints, development Swagger, CI checks, the core schema, email/password registration/login with stateless JWT authentication, and an OS-only live Google Sheets booking read endpoint. Auth/user and sheet-booking domain packages, the PostgreSQL user repository, and the Google Sheets reader are implemented; other domain packages remain placeholders. Chula SSO, native booking APIs, sessions, and equipment features are not implemented. Treat the future rules below as design requirements, not existing functionality.
 
 ## Project Structure & Module Organization
 
@@ -12,11 +12,12 @@ Currently implemented: environment configuration, structured logging, PostgreSQL
 cmd/api/main.go                              # startup and dependency wiring
 internal/config/                             # environment configuration
 internal/core/domain/                        # business entities, services, ports
-  auth/ user/ building/ room/ booking/ audit/ shared/
+  auth/ user/ sheetbooking/ building/ room/ booking/ audit/ shared/
 internal/adapter/primary/http/                # Chi router, handlers, HTTP DTOs
   health/ middleware/
 internal/adapter/secondary/repository/postgres/ # direct pgx repositories
 internal/adapter/secondary/infrastructure/database/ # pool initialization
+internal/adapter/secondary/infrastructure/googlesheets/ # read-only Sheets client
 db/migrations/                              # versioned Goose SQL migrations
 docs/                                       # generated Swaggo Go/JSON/YAML
 .github/workflows/ci.yml                      # automated checks
@@ -29,7 +30,7 @@ Tests live beside their source files as `*_test.go`. For new features, useful fi
 ```text
 HTTP handler → Domain service → Repository port
                                      ↑
-                              PostgreSQL adapter
+                         PostgreSQL / Google Sheets adapter
 ```
 
 - Core domain packages must not import `chi`, `net/http`, `pgx`, Swaggo, configuration/environment packages, or concrete repository implementations.
@@ -122,7 +123,7 @@ Important OS actions should append audit history: approval, rejection, cancellat
 
 ## HTTP, Swagger & Health Contracts
 
-Business routes belong under `/api/v1`. Authentication provides POST `/api/v1/auth/register`, POST `/api/v1/auth/login`, and protected GET `/api/v1/auth/me`. Room and booking routes remain unimplemented. OS routes may use `/api/v1/admin`, but the prefix provides no authorization: explicitly verify the authenticated user's current OS role.
+Business routes belong under `/api/v1`. Authentication provides POST `/api/v1/auth/register`, POST `/api/v1/auth/login`, and protected GET `/api/v1/auth/me`. The OS-only GET `/api/v1/admin/sheet-bookings` fetches legacy rows live from Google Sheets; native room and booking routes remain unimplemented. The `/api/v1/admin` prefix provides no authorization: explicitly verify the authenticated user's current OS role.
 
 Whenever endpoint behavior changes, update Swaggo comments, run `make swagger`, and commit `docs/docs.go`, `docs/swagger.json`, and `docs/swagger.yaml`. Comments document the contract; business logic stays in code. CI detects stale generation, while tests/review must verify annotations match actual behavior.
 
@@ -154,6 +155,8 @@ Configuration comes from environment variables. `.env.example` documents local v
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error`; default `info`. |
 | `DATABASE_URL` | Required PostgreSQL connection string. |
 | `JWT_SECRET` | Required signing secret; at least 32 bytes excluding surrounding whitespace. |
+| `GOOGLE_SPREADSHEET_ID` / `GOOGLE_SHEET_RANGE` | Required Google Sheets source and range for the live OS booking endpoint. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Optional standard ADC path for local credentials; deployed workloads may use an attached identity. |
 | `DB_MAX_CONNS` / `DB_MIN_CONNS` | Defaults 10 / 0; maximum positive, minimum between zero and maximum. |
 | `DB_CONNECT_TIMEOUT` / `SHUTDOWN_TIMEOUT` | Positive durations; defaults `5s` / `10s`. |
 

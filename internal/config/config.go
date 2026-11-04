@@ -16,6 +16,8 @@ type Config struct {
 	LogLevel         slog.Level
 	DatabaseURL      string
 	JWTSecret        string
+	SpreadsheetID    string
+	SheetRange       string
 	DBMaxConns       int32
 	DBMinConns       int32
 	DBConnectTimeout time.Duration
@@ -44,12 +46,21 @@ func Load() (Config, error) {
 	default:
 		return c, fmt.Errorf("LOG_LEVEL must be debug, info, warn, or error")
 	}
+	fmt.Println("database url:", c.DatabaseURL)
 	if strings.TrimSpace(c.DatabaseURL) == "" {
 		return c, fmt.Errorf("DATABASE_URL is required")
 	}
 	c.JWTSecret = os.Getenv("JWT_SECRET")
 	if len(strings.TrimSpace(c.JWTSecret)) < 32 {
 		return c, fmt.Errorf("JWT_SECRET must contain at least 32 non-padding bytes")
+	}
+	c.SpreadsheetID = os.Getenv("GOOGLE_SPREADSHEET_ID")
+	if strings.TrimSpace(c.SpreadsheetID) == "" {
+		return c, fmt.Errorf("GOOGLE_SPREADSHEET_ID is required")
+	}
+	c.SheetRange = os.Getenv("GOOGLE_SHEET_RANGE")
+	if strings.TrimSpace(c.SheetRange) == "" {
+		return c, fmt.Errorf("GOOGLE_SHEET_RANGE is required")
 	}
 	max, err := strconv.ParseInt(value("DB_MAX_CONNS", "10"), 10, 32)
 	if err != nil || max < 1 {

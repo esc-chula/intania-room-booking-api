@@ -14,8 +14,10 @@ import (
 	_ "example.com/chula-room-booking/docs"
 	httpauth "example.com/chula-room-booking/internal/adapter/primary/http/auth"
 	"example.com/chula-room-booking/internal/adapter/primary/http/health"
+	httpsheetbooking "example.com/chula-room-booking/internal/adapter/primary/http/sheetbooking"
 	"example.com/chula-room-booking/internal/adapter/secondary/infrastructure/token"
 	"example.com/chula-room-booking/internal/core/domain/auth"
+	"example.com/chula-room-booking/internal/core/domain/sheetbooking"
 	"example.com/chula-room-booking/internal/core/domain/user"
 )
 
@@ -51,8 +53,8 @@ func TestRoutes(t *testing.T) {
 						t.Fatalf("unexpected Swagger metadata: %v", spec)
 					}
 					paths, ok := spec["paths"].(map[string]any)
-					if !ok || len(paths) != 5 {
-						t.Fatalf("want five documented paths, got %v", spec["paths"])
+					if !ok || len(paths) != 6 {
+						t.Fatalf("want six documented paths, got %v", spec["paths"])
 					}
 					for _, probe := range []string{"/healthz", "/readyz"} {
 						methods, ok := paths[probe].(map[string]any)
@@ -76,6 +78,23 @@ func TestRoutes(t *testing.T) {
 						if !ok || operations[method] == nil {
 							t.Fatalf("missing %s %s documentation", method, path)
 						}
+					}
+					operations, ok := paths["/api/v1/admin/sheet-bookings"].(map[string]any)
+					if !ok || operations["get"] == nil {
+						t.Fatal("missing sheet bookings documentation")
+					}
+					sheetGet := operations["get"].(map[string]any)
+					responses, ok := sheetGet["responses"].(map[string]any)
+					if !ok {
+						t.Fatal("missing sheet bookings responses")
+					}
+					for _, status := range []string{"200", "401", "403", "500", "502"} {
+						if responses[status] == nil {
+							t.Fatalf("missing sheet bookings %s response", status)
+						}
+					}
+					if sheetGet["security"] == nil {
+						t.Fatal("missing sheet bookings bearer security")
 					}
 				}
 				if path == "/swagger/index.html" && want == http.StatusOK && !strings.Contains(w.Body.String(), "swagger-ui") {
@@ -224,6 +243,89 @@ func TestAuthRoutes(t *testing.T) {
 				if strings.Contains(logs.String(), secret) {
 					t.Fatal("sensitive data logged")
 				}
+			}
+		})
+	}
+}
+
+type sheetReaderFunc func(context.Context) ([]sheetbooking.Booking, error)
+
+func (f sheetReaderFunc) List(ctx context.Context) ([]sheetbooking.Booking, error) { return f(ctx) }
+
+func TestSheetBookingRoutes(t *testing.T) {
+	for _, env := range []string{"development", "production"} {
+		t.Run(env, func(t *testing.T) {
+			var logs strings.Builder
+			logger := slog.New(slog.NewJSONHandler(&logs, nil))
+			repo := &authRepository{credentials: auth.Credentials{User: user.User{
+				ID: "11111111-1111-4111-8111-111111111111", Role: "OS", Active: true,
+			}}}
+			tokens, err := token.New("test-only-secret-with-at-least-32-bytes")
+			if err != nil {
+				t.Fatal(err)
+			}
+			accessToken, err := tokens.Issue(repo.credentials.User.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			authService, err := auth.New(repo, tokens)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fetches := 0
+			upstreamError := false
+			reader := sheetReaderFunc(func(context.Context) ([]sheetbooking.Booking, error) {
+				fetches++
+				if upstreamError {
+					return nil, errors.New("private-upstream-detail")
+				}
+				return []sheetbooking.Booking{{ID: "123", Name: "Requester"}}, nil
+			})
+			router := NewRouter(RouterConfig{
+				Auth:          httpauth.New(authService, logger),
+				Health:        health.New(pinger{}, logger),
+				SheetBookings: httpsheetbooking.New(sheetbooking.New(reader), logger),
+				Logger:        logger,
+				AppEnv:        env,
+			})
+			request := func(bearer string) *httptest.ResponseRecorder {
+				r := httptest.NewRequest(http.MethodGet, "/api/v1/admin/sheet-bookings", nil)
+				if bearer != "" {
+					r.Header.Set("Authorization", bearer)
+				}
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, r)
+				if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Content-Type") != "application/json" {
+					t.Fatal("missing JSON/no-store headers")
+				}
+				return w
+			}
+			for _, bearer := range []string{"", "Bearer invalid"} {
+				if w := request(bearer); w.Code != http.StatusUnauthorized {
+					t.Fatalf("unauthorized request: %d %s", w.Code, w.Body.String())
+				}
+			}
+			if fetches != 0 {
+				t.Fatal("fetched sheet before authorization")
+			}
+			repo.credentials.User.Role = "USER_A"
+			if w := request("Bearer " + accessToken); w.Code != http.StatusForbidden {
+				t.Fatalf("non-OS request: %d %s", w.Code, w.Body.String())
+			}
+			if fetches != 0 {
+				t.Fatal("fetched sheet for non-OS user")
+			}
+			repo.credentials.User.Role = "OS"
+			for i := 1; i <= 2; i++ {
+				w := request("Bearer " + accessToken)
+				if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"name":"Requester"`) || fetches != i {
+					t.Fatalf("OS request: %d %s, fetches=%d", w.Code, w.Body.String(), fetches)
+				}
+			}
+			upstreamError = true
+			w := request("Bearer " + accessToken)
+			if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), `"error":`) || strings.Contains(w.Body.String(), "private-upstream-detail") || strings.Contains(logs.String(), "private-upstream-detail") {
+				t.Fatalf("upstream failure leaked details: %d %s", w.Code, w.Body.String())
 			}
 		})
 	}
