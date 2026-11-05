@@ -1,12 +1,12 @@
 # Chula Room Booking API
 
 Go backend foundation using Chi v5, pgx v5/pgxpool, PostgreSQL, log/slog,
-Swaggo v1, and Goose SQL migrations. The first migration defines users,
-buildings, rooms, bookings, room scheduling, and audit logs. Email/password
-registration and login use stateless JWTs. An explicit command creates the
-initial ADMIN account, and an OS/admin-only endpoint reads legacy booking rows
-live from Google Sheets. OAuth, native booking APIs, and equipment features are
-not implemented yet.
+Swaggo v1, and Goose SQL migrations. The single initial migration defines users,
+buildings, rooms, bookings, room scheduling, and audit logs. Google OAuth
+creates or finds users and sets one-hour JWT auth cookies. Explicit
+commands bootstrap ADMIN and OS users. An OS/admin-only endpoint reads legacy
+booking rows live from Google Sheets. Native booking APIs and equipment features
+are not implemented yet.
 
 ```text
 HTTP handler -> Domain service -> Domain port
@@ -41,7 +41,9 @@ make run
 When running `go run ./cmd/api` directly, export environment variables yourself.
 The application does not read `.env` or fall back to `.env.example`.
 `DATABASE_URL`, `JWT_SECRET`, `GOOGLE_SPREADSHEET_ID`, and `GOOGLE_SHEET_RANGE`
-are required. `BOOTSTRAP_ADMIN_PASSWORD` is required when running
+are required. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` together to enable
+Google sign-in locally; both are required in production. Set `FRONTEND_URL` to
+the frontend origin. `BOOTSTRAP_ADMIN_EMAIL` is required when running
 `make bootstrap-admin` against a database without an ADMIN. JWT_SECRET must contain at least
 32 bytes excluding surrounding whitespace; use an independently generated
 random secret in production (for example, `openssl rand -hex 32`). The example
@@ -63,12 +65,9 @@ the volume. No migrations run during startup.
   503 `{"status":"unavailable"}`. Both probes return JSON with `Cache-Control: no-store`.
 - Development docs: http://localhost:8080/swagger/index.html and
   http://localhost:8080/swagger/doc.json. Both return 404 in production.
-- All unknown routes, including `/api/v1/rooms`, return 404. Future business
-  routes will use `/api/v1`. Swagger documents probes, authentication, and the
-  OS spreadsheet endpoint; its
-  base path is `/` so their URLs are accurate. Business route annotations
-must include `/api/v1` in their paths. This changes the Swagger base path
-  specified in the Phase 0 initialization plan.
+- All unknown routes, including `/api/v1/rooms`, return 404. Business routes
+  use `/api/v1`; the development OAuth browser flow uses the requested
+  `/auth/google` paths. Swagger's base path is `/` so both are accurate.
 
 The process fails startup if PostgreSQL is unavailable. SIGINT/SIGTERM drain
 HTTP requests within SHUTDOWN_TIMEOUT (10 seconds by default), then close the
@@ -113,6 +112,11 @@ docker build -t chula-room-booking-api .
 docker run --rm -p 127.0.0.1:8080:8080 \
   -e DATABASE_URL='postgres://USER:PASSWORD@DB_HOST:5432/DB_NAME?sslmode=verify-full' \
   -e JWT_SECRET="$JWT_SECRET" \
+  -e GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+  -e GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
+  -e GOOGLE_REDIRECT_URL='https://api.example.com/auth/google/callback' \
+  -e FRONTEND_URL='https://frontend.example.com' \
+  -e AUTH_COOKIE_SAME_SITE=none \
   -e GOOGLE_SPREADSHEET_ID='YOUR_SPREADSHEET_ID' \
   -e GOOGLE_SHEET_RANGE='จองห้อง!A9:AM' \
   -e GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-credentials.json \
@@ -136,84 +140,87 @@ make migrate-up
 make migrate-down  # roll back the latest migration
 ```
 
-The password-auth migration adds a nullable password hash and a unique index
-on trimmed, lowercase emails. Existing users are preserved without passwords.
-If existing emails collide after normalization, migration fails; resolve those
-accounts explicitly before retrying. Rolling back this migration removes all
-password hashes but preserves users. The first migration excludes equipment
-and external identities. The team's API v0.2,
-DBML v1, and EPIC remain future functional sources of truth and are not present
-in this repository.
+The single initial migration has nullable first name, last name, email, student
+ID, and phone columns on users, plus a unique index on trimmed, lowercase emails.
+It contains no password or Google subject column. Replacing the old migrations
+requires a fresh local database; `docker compose down -v` deletes the named
+volume and all its data. Then run `make db-up` and `make migrate-up`. The schema
+excludes equipment. The team's API v0.2, DBML v1, and EPIC are not checked in.
 
 ## Authentication
 
-Authentication is available in development and production. This explicitly
-replaces the session-based direction in the older Phase 0 plan. Future OAuth
-can reuse local users and JWT issuance; no OAuth endpoints are included yet.
+Google login and callback are available in development and production. The
+manual URL helper is development-only. Set the Google web OAuth client's
+authorized redirect URI exactly to `GOOGLE_REDIRECT_URL`, which points to the
+backend callback. `FRONTEND_URL` is the frontend origin to visit afterward.
+Production requires HTTPS for both URLs.
 
 | Endpoint | Input | Success |
 | --- | --- | --- |
-| `POST /api/v1/auth/register` | `name`, `email`, `password` | 201, user and access token |
-| `POST /api/v1/auth/login` | `email`, `password` | 200, user and access token |
-| `GET /api/v1/auth/me` | `Authorization: Bearer <token>` | 200, current user |
+| `GET /auth/google/url` | Browser cookie | JSON `auth_url` and temporary cookie |
+| `GET /auth/google/login` | Browser | 302 redirect to Google |
+| `GET /auth/google/callback` | Google code/state, browser cookie | Set auth cookie; redirect to frontend |
+| `GET /api/v1/auth/me` | Auth cookie | 200, current user |
+| `POST /api/v1/auth/logout` | Browser | 204; clear auth cookie |
 
-Registration trims names, trims/lowercases email, and requires a nonempty name,
-a plain email address, and a password of 8–72 bytes. Password whitespace is
-preserved. All new accounts are active `USER_A` users. Clients cannot choose
-roles, IDs, or active status. JSON bodies are limited to 16 KiB, with unknown
-fields and trailing JSON rejected. Errors use `{"error":"..."}`: 400 for
-invalid input, 409 for duplicate registration, 401 for failed authentication,
-and 500 for unexpected failures. Unknown, disabled, passwordless, and
-wrong-password accounts return the same login error.
+The browser flow uses a ten-minute, single-use state bound to an HttpOnly cookie
+and PKCE S256. The API verifies Google's signed ID token, issuer, audience, and
+expiry. Only verified `student.chula.ac.th` accounts whose email local part
+**ends with `21`** are eligible. The `hd` request parameter is only an account
+selection hint; the signed `hd` and email claims are checked on callback.
+Google access tokens are never returned or stored.
 
-Successful registration/login returns
-`{"access_token":"...","token_type":"Bearer","expires_in":3600,"user":{"id":"...","name":"...","email":"...","role":"USER_A"}}`.
-Passwords use bcrypt at cost 12. JWTs use HS256 with user ID, issue/expiry times,
-issuer, and audience; they contain no role or personal data. Authentication
-checks the current user in PostgreSQL without storing sessions. Disabled or
-deleted accounts are rejected immediately; role changes apply on the next
-request. All auth responses use `Cache-Control: no-store`.
+An existing normalized email is returned without changing the database row.
+A numeric email local part can match a preloaded OS `student_id`; its first login
+fills email and available first/last names while preserving OS. A new account
+gets `USER_A`, and a numeric local part becomes its student ID. Ambiguous email
+and student ID matches redirect to the frontend login page with an error code.
+The Google subject is not stored. Optional profile names may be absent.
+
+The callback sets a one-hour HS256 application JWT in a host-only, HttpOnly
+cookie and redirects to `FRONTEND_URL`. Errors redirect to its `/login` page
+with a simple `auth_error` code. No token appears in the redirect URL or body.
+The JWT contains user ID, issue/expiry times, issuer, and audience, but no role or personal data.
+Protected routes reload the current active user from PostgreSQL on every
+request, so disabling a user or changing a role takes effect immediately.
+The API reads only the auth cookie; Authorization headers are ignored. Logout
+clears the cookie but does not revoke an already issued JWT. Responses use
+`Cache-Control: no-store`; the callback blocks referrers. There is no refresh token.
 
 ```sh
-curl -i http://localhost:8080/api/v1/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Test User","email":"test@example.com","password":"test-password-123"}'
-
-curl -i http://localhost:8080/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"test@example.com","password":"test-password-123"}'
-
-# Copy access_token from either response.
-curl -i http://localhost:8080/api/v1/auth/me \
-  -H 'Authorization: Bearer YOUR_ACCESS_TOKEN'
+curl -i http://localhost:8080/auth/google/url
+# For a full test, open this in the browser that will receive the callback:
+# http://localhost:8080/auth/google/login
+# After browser sign-in, call from the frontend:
+# fetch('http://localhost:8080/api/v1/auth/me', {credentials: 'include'})
 ```
 
-In Swagger's Authorize dialog, enter `Bearer YOUR_ACCESS_TOKEN`. Tokens expire
-after one hour; log in again afterward. Client logout discards the token;
-there is no refresh, logout/revocation, password reset, email verification,
-or role-management API. An email/password registration does not establish
-university affiliation.
+The URL returned to curl cannot normally be opened in an unrelated browser:
+the browser needs the same state cookie. For a cross-site frontend and API,
+use `AUTH_COOKIE_SAME_SITE=none` with HTTPS and `credentials: 'include'`. The API
+allows credentialed CORS only from `FRONTEND_URL`. Some browsers block cross-site
+cookies even with these settings; a same-site reverse proxy can use
+`AUTH_COOKIE_SAME_SITE=lax` for reliable cookie delivery.
 
 ## Bootstrap administrator
 
-`make bootstrap-admin` is an explicit deployment or local-development command.
-It connects through `DATABASE_URL`; the database may be on another machine as
-long as the command runner has network access and valid credentials. If no
-`ADMIN` exists, it creates active `Admin` with email
-`admin@gmail.com` and a bcrypt cost-12 hash of
-`BOOTSTRAP_ADMIN_PASSWORD`. Set that variable to an 8–72-byte password before
-running the command. `BOOTSTRAP_ADMIN_NAME` changes the display name and
-defaults to `Admin`.
+Set `BOOTSTRAP_ADMIN_EMAIL` to a Google-eligible Chula email, then run the
+explicit `make bootstrap-admin` command. It creates an active ADMIN with
+nullable profile fields only if no ADMIN exists. A second run does nothing.
+If that email belongs to a non-admin account, the command fails rather than
+promoting it. ADMIN is accepted by every role-guarded route, but can sign in
+only through the development Google flow at this stage.
 
-Once any ADMIN exists, the command does nothing and its account is not updated.
-If `admin@gmail.com` is already a non-admin account, the command fails
-instead of changing its role or password. Do not commit the bootstrap password.
-`ADMIN` is the shared authorization middleware's super-role, so it is accepted
-by every role-guarded route.
+`OS_STUDENT_IDS` is an optional comma-separated list, for example
+`6730000021,6720000021`. `make bootstrap-os` inserts missing OS rows with
+nullable profile fields and promotes existing listed users to OS; it never
+demotes ADMIN. Repeated runs are safe. An empty list is a no-op. This command
+is not run during API startup or migration.
 
 ```sh
 make migrate-up
 make bootstrap-admin
+make bootstrap-os
 ```
 
 ## OS spreadsheet bookings
@@ -226,7 +233,7 @@ There is no PostgreSQL import, pagination, or filtering. An empty sheet returns
 `[]`. The endpoint is available in development and production; Swagger UI is
 development-only.
 
-The endpoint requires `Authorization: Bearer <token>` for a currently active OS
+The endpoint requires the auth cookie for a currently active OS
 or ADMIN user. Missing or invalid tokens return 401, other roles return 403, and a
 Google Sheets fetch failure returns 502. Responses are JSON with
 `Cache-Control: no-store`.
@@ -243,8 +250,7 @@ Credential files and values must not be committed. The prototype's
 `SERVER_ADDR` is replaced by this API's `HTTP_ADDR`.
 
 ```sh
-curl -i http://localhost:8080/api/v1/admin/sheet-bookings \
-  -H 'Authorization: Bearer YOUR_OS_ACCESS_TOKEN'
+# From the signed-in frontend, use fetch with credentials: 'include'.
 ```
 
 PostgreSQL integration tests are opt-in and create/drop temporary schemas;

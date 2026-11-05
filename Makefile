@@ -5,7 +5,7 @@ SWAG := $(TOOLS_DIR)/swag
 GOOSE := $(TOOLS_DIR)/goose
 SWAG_ARGS := -g main.go -d ./cmd/api,./internal/adapter/primary/http,./internal/core/domain/auth,./internal/core/domain/user,./internal/core/domain/sheetbooking --parseInternal
 
-.PHONY: db-up db-down migrate-up migrate-down bootstrap-admin run fmt fmt-check vet test build tools swagger swagger-check check
+.PHONY: db-up db-down migrate-up migrate-down bootstrap-admin bootstrap-os run fmt fmt-check vet test build tools swagger swagger-check check
 
 db-up:
 	docker compose up -d --wait db
@@ -28,6 +28,10 @@ migrate-down:
 bootstrap-admin:
 	@test -f .env || { echo 'Create .env from .env.example first.' >&2; exit 1; }
 	@set -eu; set -a; . ./.env; set +a; go run ./cmd/bootstrap-admin
+
+bootstrap-os:
+	@test -f .env || { echo 'Create .env from .env.example first.' >&2; exit 1; }
+	@set -eu; set -a; . ./.env; set +a; go run ./cmd/bootstrap-os
 
 run:
 	@test -f .env || { echo 'Create .env from .env.example first.' >&2; exit 1; }

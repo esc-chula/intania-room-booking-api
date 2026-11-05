@@ -6,7 +6,8 @@ CREATE TYPE booking_type AS ENUM ('ONE_DAY', 'CONTINUOUS_DAYS', 'WEEKLY', 'CUSTO
 CREATE TABLE users (
     id uuid PRIMARY KEY,
     student_id varchar UNIQUE,
-    name varchar,
+    first_name varchar,
+    last_name varchar,
     email varchar UNIQUE,
     phone varchar,
     role user_role NOT NULL DEFAULT 'USER_A',
@@ -14,6 +15,8 @@ CREATE TABLE users (
     created_at timestamp,
     updated_at timestamp
 );
+
+CREATE UNIQUE INDEX users_email_normalized_idx ON users (lower(btrim(email)));
 
 CREATE TABLE buildings (
     id uuid PRIMARY KEY,

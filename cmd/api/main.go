@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,12 +27,8 @@ import (
 
 // @title Chula Room Booking API
 // @version 0.1.0
-// @description Email/password authentication with one-hour stateless bearer JWTs and OS-only live spreadsheet bookings. OAuth integration is planned.
+// @description Google OAuth sign-in sets a one-hour HttpOnly authentication cookie. OS-only live spreadsheet bookings are available to authenticated users.
 // @BasePath /
-// @securityDefinitions.apikey BearerAuth
-// @in header
-// @name Authorization
-// @description Enter Bearer followed by a space and your access token.
 func main() {
 	if err := run(); err != nil {
 		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("application stopped", "error", err)
@@ -57,20 +54,26 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	authService, err := auth.New(postgres.NewUsers(pool), tokens)
-	if err != nil {
-		return err
+	authService := auth.New(postgres.NewUsers(pool), tokens, c.GoogleAllowedDomain, c.GoogleAllowedSuffix)
+	var googleAuth *httpauth.GoogleHandler
+	if c.GoogleClientID != "" {
+		googleAuth, err = httpauth.NewGoogle(ctx, authService, logger, c.GoogleClientID, c.GoogleClientSecret, c.GoogleRedirectURL, c.FrontendURL, c.GoogleAllowedDomain, c.AuthCookieSameSite)
+		if err != nil {
+			return err
+		}
 	}
 	sheetReader, err := googlesheets.New(ctx, c.SpreadsheetID, c.SheetRange)
 	if err != nil {
 		return err
 	}
 	router := httpadapter.NewRouter(httpadapter.RouterConfig{
-		Auth:          httpauth.New(authService, logger),
+		Auth:          httpauth.New(authService, logger, strings.HasPrefix(c.GoogleRedirectURL, "https://"), c.AuthCookieSameSite),
+		GoogleAuth:    googleAuth,
 		Health:        healthHandler,
 		SheetBookings: httpsheetbooking.New(sheetbooking.New(sheetReader), logger),
 		Logger:        logger,
 		AppEnv:        c.AppEnv,
+		FrontendURL:   c.FrontendURL,
 	})
 	server := &http.Server{
 		Addr:              c.HTTPAddr,

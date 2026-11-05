@@ -5,29 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	domainauth "github.com/MadManJJ/room-reservation-api/internal/core/domain/auth"
 	"github.com/MadManJJ/room-reservation-api/internal/core/domain/user"
 )
 
 type Handler struct {
-	service *domainauth.Service
-	logger  *slog.Logger
-}
-
-type registerRequest struct {
-	Name     string `json:"name" example:"Test User"`
-	Email    string `json:"email" example:"test@example.com"`
-	Password string `json:"password" example:"test-password-123" minLength:"8" maxLength:"72"`
-}
-
-type loginRequest struct {
-	Email    string `json:"email" example:"test@example.com"`
-	Password string `json:"password" example:"test-password-123" minLength:"8" maxLength:"72"`
+	service  *domainauth.Service
+	logger   *slog.Logger
+	secure   bool
+	sameSite http.SameSite
 }
 
 type errorResponse struct {
@@ -35,60 +24,8 @@ type errorResponse struct {
 }
 type userContextKey struct{}
 
-func New(service *domainauth.Service, logger *slog.Logger) *Handler {
-	return &Handler{service: service, logger: logger}
-}
-
-// Register creates an active USER_A account and issues an access token.
-// @Summary Register with email and password
-// @Description Name must be nonempty; email is trimmed and lowercased; password must be 8-72 bytes. Unknown fields are rejected. Available in all environments.
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param body body registerRequest true "Registration credentials"
-// @Success 201 {object} domainauth.Result
-// @Failure 400 {object} errorResponse
-// @Failure 409 {object} errorResponse
-// @Failure 500 {object} errorResponse
-// @Router /api/v1/auth/register [post]
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
-	var input registerRequest
-	if err := decode(w, r, &input); err != nil {
-		h.failure(w, r, domainauth.ErrInvalidInput)
-		return
-	}
-	result, err := h.service.Register(r.Context(), input.Name, input.Email, input.Password)
-	if err != nil {
-		h.failure(w, r, err)
-		return
-	}
-	respond(w, http.StatusCreated, result)
-}
-
-// Login verifies an active user's password and issues an access token.
-// @Summary Log in with email and password
-// @Description Returns a one-hour bearer JWT. Invalid credentials, disabled accounts, and accounts without passwords receive the same error.
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param body body loginRequest true "Login credentials"
-// @Success 200 {object} domainauth.Result
-// @Failure 400 {object} errorResponse
-// @Failure 401 {object} errorResponse
-// @Failure 500 {object} errorResponse
-// @Router /api/v1/auth/login [post]
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	var input loginRequest
-	if err := decode(w, r, &input); err != nil {
-		h.failure(w, r, domainauth.ErrInvalidInput)
-		return
-	}
-	result, err := h.service.Login(r.Context(), input.Email, input.Password)
-	if err != nil {
-		h.failure(w, r, err)
-		return
-	}
-	respond(w, http.StatusOK, result)
+func New(service *domainauth.Service, logger *slog.Logger, secure bool, sameSite http.SameSite) *Handler {
+	return &Handler{service: service, logger: logger, secure: secure, sameSite: sameSite}
 }
 
 // Me returns the authenticated user's current public profile.
@@ -96,7 +33,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 // @Description Validates the JWT and loads the current active user from PostgreSQL; role changes apply immediately.
 // @Tags auth
 // @Produce json
-// @Security BearerAuth
 // @Success 200 {object} user.User
 // @Failure 401 {object} errorResponse
 // @Failure 500 {object} errorResponse
@@ -117,17 +53,12 @@ func CurrentUser(ctx context.Context) (user.User, bool) {
 
 func (h *Handler) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		headers := r.Header.Values("Authorization")
-		if len(headers) != 1 {
+		cookie, err := r.Cookie(authCookieName)
+		if err != nil || cookie.Value == "" {
 			h.failure(w, r, domainauth.ErrUnauthorized)
 			return
 		}
-		parts := strings.Fields(headers[0])
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			h.failure(w, r, domainauth.ErrUnauthorized)
-			return
-		}
-		u, err := h.service.Authenticate(r.Context(), parts[1])
+		u, err := h.service.Authenticate(r.Context(), cookie.Value)
 		if err != nil {
 			h.failure(w, r, err)
 			return
@@ -136,7 +67,18 @@ func (h *Handler) Authenticate(next http.Handler) http.Handler {
 	})
 }
 
-// RequireRoles authorizes a current authenticated user for a set of roles.
+// Logout clears the browser authentication cookie.
+// @Summary Log out
+// @Description Clears the application auth cookie; an already issued JWT expires at its original time.
+// @Tags auth
+// @Success 204
+// @Router /api/v1/auth/logout [post]
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	setAuthCookie(w, "", h.secure, h.sameSite, -1)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) RequireRoles(roles ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -160,31 +102,12 @@ func (h *Handler) RequireRoles(roles ...string) func(http.Handler) http.Handler 
 	}
 }
 
-func decode(w http.ResponseWriter, r *http.Request, target any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return domainauth.ErrInvalidInput
-	}
-	return nil
-}
-
 func (h *Handler) failure(w http.ResponseWriter, r *http.Request, err error) {
 	status, message := http.StatusInternalServerError, "internal server error"
 	switch {
-	case errors.Is(err, domainauth.ErrInvalidInput):
-		status, message = http.StatusBadRequest, "invalid input"
-	case errors.Is(err, domainauth.ErrEmailExists):
-		status, message = http.StatusConflict, "email already registered"
 	case errors.Is(err, domainauth.ErrUnauthorized):
-		status, message = http.StatusUnauthorized, "invalid credentials or token"
-		w.Header().Set("WWW-Authenticate", "Bearer")
+		status, message = http.StatusUnauthorized, "invalid authentication cookie"
 	default:
-		// Driver errors may contain credentials; log only the type.
 		h.logger.ErrorContext(r.Context(), "authentication operation failed", "error_type", fmt.Sprintf("%T", err))
 	}
 	respond(w, status, errorResponse{Error: message})

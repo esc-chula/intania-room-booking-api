@@ -8,9 +8,11 @@ const (
 )
 
 type User struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
-	Active bool   `json:"-"`
+	ID        string `json:"id"`
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
+	Email     string `json:"email"`
+	StudentID string `json:"-"`
+	Role      string `json:"role"`
+	Active    bool   `json:"-"`
 }

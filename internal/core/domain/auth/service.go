@@ -8,31 +8,22 @@ import (
 	"time"
 
 	"github.com/MadManJJ/room-reservation-api/internal/core/domain/user"
-	"golang.org/x/crypto/bcrypt"
 )
 
 const TokenLifetime = time.Hour
-const passwordCost = 12
-const BootstrapAdminEmail = "admin@gmail.com"
 
 var (
 	ErrInvalidInput              = errors.New("invalid input")
-	ErrEmailExists               = errors.New("email already registered")
+	ErrIneligible                = errors.New("Google account is not eligible")
+	ErrIdentityConflict          = errors.New("email and student ID belong to different users")
 	ErrNotFound                  = errors.New("user not found")
 	ErrUnauthorized              = errors.New("invalid credentials or token")
 	ErrBootstrapAdminEmailExists = errors.New("bootstrap admin email belongs to a non-admin user")
-	ErrBootstrapAdminPassword    = errors.New("BOOTSTRAP_ADMIN_PASSWORD must be 8-72 bytes when no ADMIN exists")
 )
 
-type Credentials struct {
-	User         user.User
-	PasswordHash string
-}
-
 type Repository interface {
-	CreateUser(context.Context, string, string, string) (user.User, error)
-	CreateAdmin(context.Context, string, string, string) (user.User, error)
-	FindCredentialsByEmail(context.Context, string) (Credentials, error)
+	ResolveGoogleUser(context.Context, string, string, string, string) (user.User, error)
+	CreateAdmin(context.Context, string) (user.User, error)
 	FindUserByID(context.Context, string) (user.User, error)
 	FindAdmin(context.Context) (user.User, error)
 }
@@ -40,6 +31,15 @@ type Repository interface {
 type Tokens interface {
 	Issue(string) (string, error)
 	Verify(string) (string, error)
+}
+
+type GoogleIdentity struct {
+	Subject       string
+	Email         string
+	EmailVerified bool
+	HostedDomain  string
+	FirstName     string
+	LastName      string
 }
 
 type Result struct {
@@ -50,72 +50,72 @@ type Result struct {
 }
 
 type Service struct {
-	repository Repository
-	tokens     Tokens
-	dummyHash  []byte
+	repository    Repository
+	tokens        Tokens
+	allowedDomain string
+	allowedSuffix string
 }
 
-func New(repository Repository, tokens Tokens) (*Service, error) {
-	dummy, err := bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing"), passwordCost)
-	if err != nil {
-		return nil, err
+func New(repository Repository, tokens Tokens, allowedDomain, allowedSuffix string) *Service {
+	return &Service{repository: repository, tokens: tokens, allowedDomain: allowedDomain, allowedSuffix: allowedSuffix}
+}
+
+func EligibleGoogleEmail(email, hostedDomain string, verified bool, allowedDomain, allowedSuffix string) bool {
+	if !verified || !strings.EqualFold(hostedDomain, allowedDomain) {
+		return false
 	}
-	return &Service{repository: repository, tokens: tokens, dummyHash: dummy}, nil
-}
-
-func normalizeEmail(email string) (string, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	local, domain, ok := strings.Cut(email, "@")
+	if !ok || local == "" || !strings.EqualFold(domain, allowedDomain) || !strings.HasSuffix(local, allowedSuffix) {
+		return false
+	}
 	address, err := mail.ParseAddress(email)
-	if err != nil || address.Address != email || len(email) > 254 {
-		return "", ErrInvalidInput
-	}
-	return email, nil
+	return err == nil && address.Address == email && len(email) <= 254
 }
 
-func validPassword(password string) bool { return len(password) >= 8 && len(password) <= 72 }
-
-func (s *Service) Register(ctx context.Context, name, email, password string) (Result, error) {
-	name = strings.TrimSpace(name)
-	email, err := normalizeEmail(email)
-	if err != nil || name == "" || !validPassword(password) {
-		return Result{}, ErrInvalidInput
+func (s *Service) SignInGoogle(ctx context.Context, identity GoogleIdentity) (Result, error) {
+	if identity.Subject == "" || !EligibleGoogleEmail(identity.Email, identity.HostedDomain, identity.EmailVerified, s.allowedDomain, s.allowedSuffix) {
+		return Result{}, ErrIneligible
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), passwordCost)
+	email := strings.ToLower(identity.Email)
+	local, _, _ := strings.Cut(email, "@")
+	studentID := ""
+	if numericStudentID(local) {
+		studentID = local
+	}
+	u, err := s.repository.ResolveGoogleUser(ctx, email, studentID, strings.TrimSpace(identity.FirstName), strings.TrimSpace(identity.LastName))
 	if err != nil {
 		return Result{}, err
 	}
-	u, err := s.repository.CreateUser(ctx, name, email, string(hash))
-	if err != nil {
-		return Result{}, err
+	if !u.Active {
+		return Result{}, ErrUnauthorized
 	}
 	return s.result(u)
 }
 
-// BootstrapAdmin creates the fixed initial administrator only when no admin exists.
-func (s *Service) BootstrapAdmin(ctx context.Context, name, password string) (bool, error) {
-	return BootstrapAdmin(ctx, s.repository, name, password)
+func numericStudentID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
-// BootstrapAdmin creates the fixed initial administrator only when no admin exists.
-func BootstrapAdmin(ctx context.Context, repository Repository, name, password string) (bool, error) {
+func BootstrapAdmin(ctx context.Context, repository Repository, email, allowedDomain, allowedSuffix string) (bool, error) {
 	if _, err := repository.FindAdmin(ctx); err == nil {
 		return false, nil
 	} else if !errors.Is(err, ErrNotFound) {
 		return false, err
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if !EligibleGoogleEmail(email, allowedDomain, true, allowedDomain, allowedSuffix) {
 		return false, ErrInvalidInput
 	}
-	if !validPassword(password) {
-		return false, ErrBootstrapAdminPassword
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), passwordCost)
-	if err != nil {
-		return false, err
-	}
-	if _, err := repository.CreateAdmin(ctx, name, BootstrapAdminEmail, string(hash)); err != nil {
-		if errors.Is(err, ErrEmailExists) {
+	if _, err := repository.CreateAdmin(ctx, email); err != nil {
+		if errors.Is(err, ErrIdentityConflict) {
 			if _, findErr := repository.FindAdmin(ctx); findErr == nil {
 				return false, nil
 			}
@@ -124,26 +124,6 @@ func BootstrapAdmin(ctx context.Context, repository Repository, name, password s
 		return false, err
 	}
 	return true, nil
-}
-
-func (s *Service) Login(ctx context.Context, email, password string) (Result, error) {
-	email, err := normalizeEmail(email)
-	if err != nil || !validPassword(password) {
-		return Result{}, ErrInvalidInput
-	}
-	credentials, err := s.repository.FindCredentialsByEmail(ctx, email)
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		return Result{}, err
-	}
-	hash := []byte(credentials.PasswordHash)
-	if len(hash) == 0 {
-		hash = s.dummyHash
-	}
-	passwordErr := bcrypt.CompareHashAndPassword(hash, []byte(password))
-	if err != nil || credentials.PasswordHash == "" || !credentials.User.Active || passwordErr != nil {
-		return Result{}, ErrUnauthorized
-	}
-	return s.result(credentials.User)
 }
 
 func (s *Service) Authenticate(ctx context.Context, token string) (user.User, error) {

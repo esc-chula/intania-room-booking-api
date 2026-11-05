@@ -28,7 +28,7 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
-	created, err := auth.BootstrapAdmin(context.Background(), postgres.NewUsers(pool), c.BootstrapAdminName, c.BootstrapAdminPassword)
+	created, err := auth.BootstrapAdmin(context.Background(), postgres.NewUsers(pool), c.BootstrapAdminEmail, c.GoogleAllowedDomain, c.GoogleAllowedSuffix)
 	if err != nil {
 		return err
 	}

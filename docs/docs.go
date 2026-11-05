@@ -17,11 +17,6 @@ const docTemplate = `{
     "paths": {
         "/api/v1/admin/sheet-bookings": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Requires a currently active OS or ADMIN user. Reads the configured Google Sheet on every request and returns seven string fields per row.",
                 "produces": [
                     "application/json"
@@ -67,65 +62,22 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/auth/login": {
+        "/api/v1/auth/logout": {
             "post": {
-                "description": "Returns a one-hour bearer JWT. Invalid credentials, disabled accounts, and accounts without passwords receive the same error.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
+                "description": "Clears the application auth cookie; an already issued JWT expires at its original time.",
                 "tags": [
                     "auth"
                 ],
-                "summary": "Log in with email and password",
-                "parameters": [
-                    {
-                        "description": "Login credentials",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/auth.loginRequest"
-                        }
-                    }
-                ],
+                "summary": "Log out",
                 "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/auth.Result"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/auth.errorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/auth.errorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/auth.errorResponse"
-                        }
+                    "204": {
+                        "description": "No Content"
                     }
                 }
             }
         },
         "/api/v1/auth/me": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Validates the JWT and loads the current active user from PostgreSQL; role changes apply immediately.",
                 "produces": [
                     "application/json"
@@ -156,51 +108,62 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/auth/register": {
-            "post": {
-                "description": "Name must be nonempty; email is trimmed and lowercased; password must be 8-72 bytes. Unknown fields are rejected. Available in all environments.",
-                "consumes": [
-                    "application/json"
+        "/auth/google/callback": {
+            "get": {
+                "description": "Redirects to FRONTEND_URL on success or /login?auth_error=code on failure. Never exposes a token in the URL or response body.",
+                "tags": [
+                    "auth"
                 ],
+                "summary": "Complete Google sign-in",
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    }
+                }
+            }
+        },
+        "/auth/google/login": {
+            "get": {
+                "description": "Sets a temporary state cookie and redirects to Google.",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Start Google sign-in",
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/auth.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/google/url": {
+            "get": {
+                "description": "Development only. The same browser must retain the temporary cookie when following auth_url.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "auth"
                 ],
-                "summary": "Register with email and password",
-                "parameters": [
-                    {
-                        "description": "Registration credentials",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/auth.registerRequest"
-                        }
-                    }
-                ],
+                "summary": "Get Google authorization URL",
                 "responses": {
-                    "201": {
-                        "description": "Created",
+                    "200": {
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/auth.Result"
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/auth.errorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/auth.errorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/auth.errorResponse"
                         }
@@ -256,62 +219,11 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "auth.Result": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string"
-                },
-                "expires_in": {
-                    "type": "integer"
-                },
-                "token_type": {
-                    "type": "string"
-                },
-                "user": {
-                    "$ref": "#/definitions/user.User"
-                }
-            }
-        },
         "auth.errorResponse": {
             "type": "object",
             "properties": {
                 "error": {
                     "type": "string"
-                }
-            }
-        },
-        "auth.loginRequest": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string",
-                    "example": "test@example.com"
-                },
-                "password": {
-                    "type": "string",
-                    "maxLength": 72,
-                    "minLength": 8,
-                    "example": "test-password-123"
-                }
-            }
-        },
-        "auth.registerRequest": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string",
-                    "example": "test@example.com"
-                },
-                "name": {
-                    "type": "string",
-                    "example": "Test User"
-                },
-                "password": {
-                    "type": "string",
-                    "maxLength": 72,
-                    "minLength": 8,
-                    "example": "test-password-123"
                 }
             }
         },
@@ -363,24 +275,19 @@ const docTemplate = `{
                 "email": {
                     "type": "string"
                 },
+                "first_name": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
-                "name": {
+                "last_name": {
                     "type": "string"
                 },
                 "role": {
                     "type": "string"
                 }
             }
-        }
-    },
-    "securityDefinitions": {
-        "BearerAuth": {
-            "description": "Enter Bearer followed by a space and your access token.",
-            "type": "apiKey",
-            "name": "Authorization",
-            "in": "header"
         }
     }
 }`
@@ -392,7 +299,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "Chula Room Booking API",
-	Description:      "Email/password authentication with one-hour stateless bearer JWTs and OS-only live spreadsheet bookings. OAuth integration is planned.",
+	Description:      "Google OAuth sign-in sets a one-hour HttpOnly authentication cookie. OS-only live spreadsheet bookings are available to authenticated users.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

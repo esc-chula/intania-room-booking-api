@@ -29,7 +29,6 @@ func New(service *domainbooking.Service, logger *slog.Logger) *Handler {
 // @Description Requires a currently active OS or ADMIN user. Reads the configured Google Sheet on every request and returns seven string fields per row.
 // @Tags sheet-bookings
 // @Produce json
-// @Security BearerAuth
 // @Success 200 {array} domainbooking.Booking
 // @Failure 401 {object} errorResponse
 // @Failure 403 {object} errorResponse

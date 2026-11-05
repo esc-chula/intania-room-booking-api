@@ -3,213 +3,127 @@ package auth
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/MadManJJ/room-reservation-api/internal/core/domain/user"
-	"golang.org/x/crypto/bcrypt"
 )
 
-type memoryRepository struct {
-	credentials  Credentials
-	admin        Credentials
-	adminCreates int
-	err          error
+type fakeRepository struct {
+	u               user.User
+	admin           user.User
+	resolveEmail    string
+	resolveStudent  string
+	resolveFirst    string
+	resolveLast     string
+	resolveCalls    int
+	createAdminCall int
+	err             error
 }
 
-func (r *memoryRepository) CreateUser(_ context.Context, name, email, hash string) (user.User, error) {
+func (r *fakeRepository) ResolveGoogleUser(_ context.Context, email, student, first, last string) (user.User, error) {
+	r.resolveCalls++
+	r.resolveEmail, r.resolveStudent, r.resolveFirst, r.resolveLast = email, student, first, last
+	return r.u, r.err
+}
+func (r *fakeRepository) CreateAdmin(_ context.Context, email string) (user.User, error) {
+	r.createAdminCall++
 	if r.err != nil {
 		return user.User{}, r.err
 	}
-	if r.credentials.User.Email == email {
-		return user.User{}, ErrEmailExists
-	}
-	r.credentials = Credentials{User: user.User{ID: "user-id", Name: name, Email: email, Role: user.RoleUserA, Active: true}, PasswordHash: hash}
-	return r.credentials.User, nil
+	r.admin = user.User{ID: "admin-id", Email: email, Role: user.RoleAdmin, Active: true}
+	return r.admin, nil
 }
-func (r *memoryRepository) CreateAdmin(_ context.Context, name, email, hash string) (user.User, error) {
-	if r.err != nil {
-		return user.User{}, r.err
-	}
-	if r.credentials.User.Email == email || r.admin.User.ID != "" {
-		return user.User{}, ErrEmailExists
-	}
-	r.adminCreates++
-	r.admin = Credentials{User: user.User{ID: "admin-id", Name: name, Email: email, Role: user.RoleAdmin, Active: true}, PasswordHash: hash}
-	return r.admin.User, nil
-}
-func (r *memoryRepository) FindCredentialsByEmail(_ context.Context, email string) (Credentials, error) {
-	if r.err != nil {
-		return Credentials{}, r.err
-	}
-	if r.credentials.User.Email != email {
-		return Credentials{}, ErrNotFound
-	}
-	return r.credentials, nil
-}
-func (r *memoryRepository) FindUserByID(_ context.Context, id string) (user.User, error) {
-	if r.err != nil {
-		return user.User{}, r.err
-	}
-	if r.credentials.User.ID != id {
+func (r *fakeRepository) FindAdmin(context.Context) (user.User, error) {
+	if r.admin.ID == "" {
 		return user.User{}, ErrNotFound
 	}
-	return r.credentials.User, nil
+	return r.admin, nil
 }
-func (r *memoryRepository) FindAdmin(_ context.Context) (user.User, error) {
-	if r.err != nil {
-		return user.User{}, r.err
-	}
-	if r.admin.User.ID == "" {
-		return user.User{}, ErrNotFound
-	}
-	return r.admin.User, nil
+func (r *fakeRepository) FindUserByID(context.Context, string) (user.User, error) {
+	return r.u, r.err
 }
 
-type testTokens struct{}
+type fakeTokens struct{}
 
-func (testTokens) Issue(id string) (string, error) { return id, nil }
-func (testTokens) Verify(token string) (string, error) {
-	if token == "invalid" {
-		return "", ErrUnauthorized
-	}
-	return token, nil
-}
+func (fakeTokens) Issue(string) (string, error)  { return "app-jwt", nil }
+func (fakeTokens) Verify(string) (string, error) { return "user-id", nil }
 
-func TestBootstrapAdmin(t *testing.T) {
-	ctx := context.Background()
-	t.Run("creates once", func(t *testing.T) {
-		repo := &memoryRepository{}
-		s, err := New(repo, testTokens{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		created, err := s.BootstrapAdmin(ctx, " Admin ", "admin-password-123")
-		if err != nil || !created {
-			t.Fatalf("bootstrap: created=%v err=%v", created, err)
-		}
-		if repo.admin.User.Name != "Admin" || repo.admin.User.Email != BootstrapAdminEmail || repo.admin.User.Role != user.RoleAdmin || !repo.admin.User.Active || repo.adminCreates != 1 {
-			t.Fatalf("unexpected admin: %+v", repo.admin.User)
-		}
-		if err := bcrypt.CompareHashAndPassword([]byte(repo.admin.PasswordHash), []byte("admin-password-123")); err != nil {
-			t.Fatal(err)
-		}
-		if created, err := s.BootstrapAdmin(ctx, "", ""); err != nil || created || repo.adminCreates != 1 {
-			t.Fatalf("existing admin changed: created=%v err=%v creates=%d", created, err, repo.adminCreates)
-		}
-	})
-	t.Run("requires valid password only when absent", func(t *testing.T) {
-		s, err := New(&memoryRepository{}, testTokens{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, password := range []string{"", "short", strings.Repeat("x", 73)} {
-			if _, err := s.BootstrapAdmin(ctx, "Admin", password); !errors.Is(err, ErrBootstrapAdminPassword) {
-				t.Fatalf("invalid bootstrap password accepted: %q: %v", password, err)
-			}
-		}
-	})
-	t.Run("does not overwrite matching user", func(t *testing.T) {
-		repo := &memoryRepository{credentials: Credentials{User: user.User{Email: BootstrapAdminEmail, Role: user.RoleUserA}}}
-		s, err := New(repo, testTokens{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.BootstrapAdmin(ctx, "Admin", "admin-password-123"); !errors.Is(err, ErrBootstrapAdminEmailExists) {
-			t.Fatalf("email collision: %v", err)
-		}
-	})
-}
-
-func TestAuthenticationFlow(t *testing.T) {
-	ctx := context.Background()
-	repo := &memoryRepository{}
-	s, err := New(repo, testTokens{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := s.Register(ctx, " Test User ", " TEST@Example.COM ", " password with spaces ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.User.Name != "Test User" || result.User.Email != "test@example.com" || result.User.Role != "USER_A" || result.ExpiresIn != 3600 || result.TokenType != "Bearer" || result.AccessToken == "" {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(repo.credentials.PasswordHash), []byte(" password with spaces ")); err != nil {
-		t.Fatal(err)
-	}
-	if cost, err := bcrypt.Cost([]byte(repo.credentials.PasswordHash)); err != nil || cost != 12 {
-		t.Fatalf("wrong bcrypt cost: %d, %v", cost, err)
-	}
-	if _, err := s.Login(ctx, " TEST@example.com ", " password with spaces "); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Register(ctx, "Another", "test@example.com", "password123"); !errors.Is(err, ErrEmailExists) {
-		t.Fatalf("duplicate: %v", err)
-	}
-	for _, tc := range []struct{ name, email, password string }{
-		{"wrong password", "test@example.com", "incorrect-password"},
-		{"unknown user", "other@example.com", "password123"},
-		{"password preserved", "test@example.com", "password with spaces"},
+func TestEligibleGoogleEmail(t *testing.T) {
+	for _, tc := range []struct {
+		name, email, hd string
+		verified        bool
+		want            bool
+	}{
+		{"numeric student", "6500000021@student.chula.ac.th", "student.chula.ac.th", true, true},
+		{"non numeric", "john21@student.chula.ac.th", "student.chula.ac.th", true, true},
+		{"case insensitive domain", "john21@STUDENT.CHULA.AC.TH", "STUDENT.CHULA.AC.TH", true, true},
+		{"starts with 21", "2100000000@student.chula.ac.th", "student.chula.ac.th", true, false},
+		{"wrong suffix", "6500000022@student.chula.ac.th", "student.chula.ac.th", true, false},
+		{"gmail", "john21@gmail.com", "student.chula.ac.th", true, false},
+		{"unverified", "john21@student.chula.ac.th", "student.chula.ac.th", false, false},
+		{"missing email", "", "student.chula.ac.th", true, false},
+		{"missing hd", "john21@student.chula.ac.th", "", true, false},
+		{"wrong hd", "john21@student.chula.ac.th", "chula.ac.th", true, false},
+		{"invalid email", "john21@@student.chula.ac.th", "student.chula.ac.th", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := s.Login(ctx, tc.email, tc.password); !errors.Is(err, ErrUnauthorized) {
-				t.Fatalf("want unauthorized, got %v", err)
+			if got := EligibleGoogleEmail(tc.email, tc.hd, tc.verified, "student.chula.ac.th", "21"); got != tc.want {
+				t.Fatalf("eligible = %v, want %v", got, tc.want)
 			}
 		})
 	}
-	repo.credentials.User.Role = "OS"
-	u, err := s.Authenticate(ctx, result.AccessToken)
-	if err != nil || u.Role != "OS" {
-		t.Fatalf("current role: %+v %v", u, err)
+}
+
+func TestSignInGoogle(t *testing.T) {
+	repo := &fakeRepository{u: user.User{ID: "user-id", Email: "6500000021@student.chula.ac.th", Role: user.RoleUserA, Active: true}}
+	s := New(repo, fakeTokens{}, "student.chula.ac.th", "21")
+	identity := GoogleIdentity{Subject: "google-sub", Email: "6500000021@STUDENT.CHULA.AC.TH", EmailVerified: true, HostedDomain: "student.chula.ac.th", FirstName: " First ", LastName: " Last "}
+	result, err := s.SignInGoogle(context.Background(), identity)
+	if err != nil || result.AccessToken != "app-jwt" || result.User.ID != "user-id" || repo.resolveStudent != "6500000021" || repo.resolveEmail != "6500000021@student.chula.ac.th" || repo.resolveFirst != "First" || repo.resolveLast != "Last" {
+		t.Fatalf("sign in: result=%+v repo=%+v err=%v", result, repo, err)
 	}
-	repo.credentials.User.Active = false
-	if _, err := s.Login(ctx, "test@example.com", " password with spaces "); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("disabled login: %v", err)
+	identity.Email = "john21@student.chula.ac.th"
+	if _, err := s.SignInGoogle(context.Background(), identity); err != nil || repo.resolveStudent != "" {
+		t.Fatalf("nonnumeric local part: %q %v", repo.resolveStudent, err)
 	}
-	if _, err := s.Authenticate(ctx, result.AccessToken); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("disabled token: %v", err)
+	identity.EmailVerified = false
+	if _, err := s.SignInGoogle(context.Background(), identity); !errors.Is(err, ErrIneligible) || repo.resolveCalls != 2 {
+		t.Fatalf("ineligible account reached repository: %v", err)
 	}
-	repo.credentials.User.Active = true
-	repo.credentials.PasswordHash = ""
-	if _, err := s.Login(ctx, "test@example.com", "password123"); !errors.Is(err, ErrUnauthorized) {
-		t.Fatalf("passwordless login: %v", err)
-	}
-	for _, token := range []string{"invalid", "deleted-user"} {
-		if _, err := s.Authenticate(ctx, token); !errors.Is(err, ErrUnauthorized) {
-			t.Fatalf("invalid token: %v", err)
-		}
-	}
-	repo.err = errors.New("database unavailable")
-	if _, err := s.Login(ctx, "test@example.com", "password123"); !errors.Is(err, repo.err) {
-		t.Fatalf("repository error: %v", err)
-	}
-	if _, err := s.Authenticate(ctx, result.AccessToken); !errors.Is(err, repo.err) {
-		t.Fatalf("repository error: %v", err)
+	repo.u.Active = false
+	identity.EmailVerified = true
+	if _, err := s.SignInGoogle(context.Background(), identity); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("disabled user accepted: %v", err)
 	}
 }
 
-func TestInputValidation(t *testing.T) {
-	s, err := New(&memoryRepository{}, testTokens{})
-	if err != nil {
-		t.Fatal(err)
+func TestBootstrapAdmin(t *testing.T) {
+	repo := &fakeRepository{}
+	ctx := context.Background()
+	if _, err := BootstrapAdmin(ctx, repo, "admin@gmail.com", "student.chula.ac.th", "21"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("ineligible admin email: %v", err)
 	}
-	for _, tc := range []struct{ name, email, password string }{
-		{"", "test@example.com", "password123"}, {"   ", "test@example.com", "password123"},
-		{"User", "bad-email", "password123"}, {"User", "User <test@example.com>", "password123"},
-		{"User", "test@example.com", "short"}, {"User", "test@example.com", strings.Repeat("x", 73)},
-		{"User", "test@example.com", strings.Repeat("ก", 25)},
-	} {
-		if _, err := s.Register(context.Background(), tc.name, tc.email, tc.password); !errors.Is(err, ErrInvalidInput) {
-			t.Fatalf("invalid registration accepted: %+v %v", tc, err)
+	created, err := BootstrapAdmin(ctx, repo, "6500000021@student.chula.ac.th", "student.chula.ac.th", "21")
+	if err != nil || !created || repo.admin.Role != user.RoleAdmin || repo.createAdminCall != 1 {
+		t.Fatalf("admin not created: %+v %v", repo, err)
+	}
+	created, err = BootstrapAdmin(ctx, repo, "", "student.chula.ac.th", "21")
+	if err != nil || created || repo.createAdminCall != 1 {
+		t.Fatalf("second admin created: %+v %v", repo, err)
+	}
+}
+
+func TestParseOSStudentIDs(t *testing.T) {
+	ids, err := ParseOSStudentIDs("6730000021, 6720000021,6730000021", "21")
+	if err != nil || len(ids) != 2 || ids[0] != "6730000021" || ids[1] != "6720000021" {
+		t.Fatalf("parse: %v %v", ids, err)
+	}
+	if ids, err = ParseOSStudentIDs("", "21"); err != nil || len(ids) != 0 {
+		t.Fatalf("empty: %v %v", ids, err)
+	}
+	for _, raw := range []string{"john21", "6730000022", "6730000021,", "6730000021,,6720000021"} {
+		if _, err := ParseOSStudentIDs(raw, "21"); !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("accepted %q", raw)
 		}
-	}
-	for _, password := range []string{"", "short", strings.Repeat("x", 73)} {
-		if _, err := s.Login(context.Background(), "test@example.com", password); !errors.Is(err, ErrInvalidInput) {
-			t.Fatalf("invalid login password accepted: %v", err)
-		}
-	}
-	if _, err := s.Login(context.Background(), "invalid", "password123"); !errors.Is(err, ErrInvalidInput) {
-		t.Fatal(err)
 	}
 }
