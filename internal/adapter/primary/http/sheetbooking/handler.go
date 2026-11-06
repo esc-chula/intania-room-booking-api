@@ -85,6 +85,61 @@ func (h *Handler) Calendar(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, http.StatusOK, result)
 }
+
+// Weekly returns sheet bookings grouped under every catalog room in a date range.
+// @Summary Weekly OS spreadsheet room schedule
+// @Description Requires OS or ADMIN. Uses the shared 60-second cached Sheet snapshot. Dates are inclusive and use Bangkok time.
+// @Tags sheet-bookings
+// @Produce json
+// @Param start_date query string false "Start date YYYY-MM-DD; defaults to today in Bangkok"
+// @Param end_date query string false "End date YYYY-MM-DD; defaults to six days after start_date"
+// @Param building query string false "ENG 3, ENG 100, or ENG 4"
+// @Success 200 {object} domainbooking.WeeklyResult
+// @Failure 400 {object} errorResponse
+// @Failure 401 {object} errorResponse
+// @Failure 403 {object} errorResponse
+// @Failure 502 {object} errorResponse
+// @Router /api/v1/admin/sheet-bookings/weekly [get]
+func (h *Handler) Weekly(w http.ResponseWriter, r *http.Request) {
+	v := r.URL.Query()
+	bad := func() { respond(w, http.StatusBadRequest, errorResponse{Error: "invalid query parameters"}) }
+	building := v.Get("building")
+	if building != "" && !h.service.ValidBuilding(building) || v.Has("end_date") && !v.Has("start_date") {
+		bad()
+		return
+	}
+	zone := time.FixedZone("ICT", 7*60*60)
+	start := time.Now().In(zone)
+	if v.Has("start_date") {
+		var err error
+		start, err = time.Parse("2006-01-02", v.Get("start_date"))
+		if err != nil {
+			bad()
+			return
+		}
+	}
+	end := start.AddDate(0, 0, 6)
+	if v.Has("end_date") {
+		var err error
+		end, err = time.Parse("2006-01-02", v.Get("end_date"))
+		if err != nil {
+			bad()
+			return
+		}
+	}
+	if end.Before(start) || end.After(start.AddDate(0, 0, 6)) {
+		bad()
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	result, err := h.service.Weekly(ctx, start.Format("2006-01-02"), end.Format("2006-01-02"), building)
+	if err != nil {
+		h.fetchError(w, r, err)
+		return
+	}
+	respond(w, http.StatusOK, result)
+}
 func (h *Handler) fetchError(w http.ResponseWriter, r *http.Request, err error) {
 	h.logger.ErrorContext(r.Context(), "Google Sheets fetch failed", "error_type", fmt.Sprintf("%T", err))
 	respond(w, http.StatusBadGateway, errorResponse{Error: "failed to fetch sheet bookings"})

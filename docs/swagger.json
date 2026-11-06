@@ -156,6 +156,70 @@
                 }
             }
         },
+        "/api/v1/admin/sheet-bookings/weekly": {
+            "get": {
+                "description": "Requires OS or ADMIN. Uses the shared 60-second cached Sheet snapshot. Dates are inclusive and use Bangkok time.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sheet-bookings"
+                ],
+                "summary": "Weekly OS spreadsheet room schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Start date YYYY-MM-DD; defaults to today in Bangkok",
+                        "name": "start_date",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End date YYYY-MM-DD; defaults to six days after start_date",
+                        "name": "end_date",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "ENG 3, ENG 100, or ENG 4",
+                        "name": "building",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.WeeklyResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/logout": {
             "post": {
                 "description": "Clears the application auth cookie; an already issued JWT expires at its original time.",
@@ -429,6 +493,66 @@
                 },
                 "total": {
                     "type": "integer"
+                }
+            }
+        },
+        "sheetbooking.WeeklyBooking": {
+            "type": "object",
+            "properties": {
+                "end_at": {
+                    "type": "string"
+                },
+                "has_conflict": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "start_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "sheetbooking.WeeklyResult": {
+            "type": "object",
+            "properties": {
+                "end_date": {
+                    "type": "string"
+                },
+                "rooms": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sheetbooking.WeeklyRoom"
+                    }
+                },
+                "start_date": {
+                    "type": "string"
+                }
+            }
+        },
+        "sheetbooking.WeeklyRoom": {
+            "type": "object",
+            "properties": {
+                "bookings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sheetbooking.WeeklyBooking"
+                    }
+                },
+                "building": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
                 }
             }
         },

@@ -63,7 +63,7 @@ func TestRoutesAndSwagger(t *testing.T) {
 					if spec.BasePath != "/" {
 						t.Fatalf("base path: %q", spec.BasePath)
 					}
-					for _, documented := range []string{"/healthz", "/readyz", "/api/v1/auth/me", "/api/v1/admin/sheet-bookings", "/api/v1/admin/sheet-bookings/calendar", "/auth/google/url", "/auth/google/login", "/auth/google/callback"} {
+					for _, documented := range []string{"/healthz", "/readyz", "/api/v1/auth/me", "/api/v1/admin/sheet-bookings", "/api/v1/admin/sheet-bookings/calendar", "/api/v1/admin/sheet-bookings/weekly", "/auth/google/url", "/auth/google/login", "/auth/google/callback"} {
 						if spec.Paths[documented]["get"] == nil {
 							t.Fatalf("missing GET %s documentation", documented)
 						}

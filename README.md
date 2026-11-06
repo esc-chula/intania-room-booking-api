@@ -244,6 +244,18 @@ for the same room and daily time window; it is additional to status counts.
 Both endpoints share a 60-second in-memory Sheet cache. A failed refresh
 returns 502. The response uses `Cache-Control: no-store`.
 
+`GET /api/v1/admin/sheet-bookings/weekly` returns bookings grouped under every
+room in `rooms.json`, including rooms with an empty `bookings` array. Optional
+`start_date` and `end_date` are inclusive `YYYY-MM-DD` dates covering at most
+seven days. Both omitted means today through six days later in Bangkok time;
+`start_date` alone also covers seven days. `end_date` alone is invalid. An
+optional `building` filter accepts `ENG 3`, `ENG 100`, or `ENG 4` and still
+returns empty rooms in that building. Each booking has the Sheet ID from column
+A (or `"-1"` if blank), title from column C, Bangkok timestamps, lowercase
+status, and an active-overlap conflict flag. Multi-day rows appear once per day.
+Unmatched rooms and invalid dates or times are omitted. This endpoint shares
+the same 60-second Sheet cache, OS/ADMIN authorization, and error behavior.
+
 The Sheet range must begin at column A and include column AE (for example
 `จองห้อง!A9:AM`). Booking fields come from A, F, N, P, Q, R, S, and AE.
 Building filters accept ENG building keys from `rooms.json` and match the room

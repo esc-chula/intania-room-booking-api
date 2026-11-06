@@ -28,6 +28,9 @@ func (s *stubService) List(_ context.Context, query domain.Query) (domain.Page, 
 func (*stubService) Calendar(context.Context, int, int, string) (domain.CalendarResult, error) {
 	return domain.CalendarResult{Days: []domain.Day{}}, nil
 }
+func (*stubService) Weekly(context.Context, string, string, string) (domain.WeeklyResult, error) {
+	return domain.WeeklyResult{Rooms: []domain.WeeklyRoom{}}, nil
+}
 
 func TestHandlerAcceptsServicePort(t *testing.T) {
 	service := &stubService{}
@@ -40,7 +43,7 @@ func TestHandlerAcceptsServicePort(t *testing.T) {
 }
 
 func TestHandlers(t *testing.T) {
-	h := New(domain.New(rows{{ID: "1", Room: "ENG 100/A", StartDate: "16/7/2026", EndDate: "16/7/2026", StartTime: "09:00", EndTime: "10:00", Status: "approved"}}, map[string]bool{"ENG 100": true}), slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	h := New(domain.New(rows{{ID: "1", Room: "ENG 100/A", StartDate: "16/7/2026", EndDate: "16/7/2026", StartTime: "09:00", EndTime: "10:00", Status: "approved"}}, map[string][]string{"ENG 100": {"A"}}), slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	for _, tc := range []struct {
 		path     string
 		calendar bool
@@ -70,6 +73,35 @@ func TestHandlers(t *testing.T) {
 			}
 			if tc.calendar && body["days"] == nil || !tc.calendar && body["items"] == nil {
 				t.Errorf("body: %v", body)
+			}
+		}
+	}
+}
+
+func TestWeeklyHandler(t *testing.T) {
+	h := New(domain.New(rows{{ID: "1", Title: "Event", Room: "ENG 100/A", StartDate: "2026-11-02", EndDate: "2026-11-02", StartTime: "09:00", EndTime: "10:00", Status: "approved"}}, map[string][]string{"ENG 100": {"A", "B"}}), slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	for _, tc := range []struct {
+		query string
+		want  int
+	}{
+		{"?start_date=2026-11-02&end_date=2026-11-02", 200},
+		{"?start_date=2026-11-02", 200},
+		{"", 200},
+		{"?end_date=2026-11-02", 400},
+		{"?start_date=2026-11-02&end_date=2026-11-09", 400},
+		{"?start_date=2026-11-03&end_date=2026-11-02", 400},
+		{"?start_date=wrong", 400},
+		{"?building=unknown", 400},
+	} {
+		w := httptest.NewRecorder()
+		h.Weekly(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/sheet-bookings/weekly"+tc.query, nil))
+		if w.Code != tc.want {
+			t.Errorf("%s: status %d", tc.query, w.Code)
+		}
+		if tc.query == "?start_date=2026-11-02&end_date=2026-11-02" {
+			var result domain.WeeklyResult
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.StartDate != "2026-11-02" || len(result.Rooms) != 2 || len(result.Rooms[0].Bookings) != 1 || len(result.Rooms[1].Bookings) != 0 {
+				t.Fatalf("response: %+v %v", result, err)
 			}
 		}
 	}

@@ -77,6 +77,45 @@ definitions:
       total:
         type: integer
     type: object
+  sheetbooking.WeeklyBooking:
+    properties:
+      end_at:
+        type: string
+      has_conflict:
+        type: boolean
+      id:
+        type: string
+      start_at:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+    type: object
+  sheetbooking.WeeklyResult:
+    properties:
+      end_date:
+        type: string
+      rooms:
+        items:
+          $ref: '#/definitions/sheetbooking.WeeklyRoom'
+        type: array
+      start_date:
+        type: string
+    type: object
+  sheetbooking.WeeklyRoom:
+    properties:
+      bookings:
+        items:
+          $ref: '#/definitions/sheetbooking.WeeklyBooking'
+        type: array
+      building:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   sheetbooking.errorResponse:
     properties:
       error:
@@ -200,6 +239,49 @@ paths:
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
       summary: Monthly OS spreadsheet booking calendar
+      tags:
+      - sheet-bookings
+  /api/v1/admin/sheet-bookings/weekly:
+    get:
+      description: Requires OS or ADMIN. Uses the shared 60-second cached Sheet snapshot.
+        Dates are inclusive and use Bangkok time.
+      parameters:
+      - description: Start date YYYY-MM-DD; defaults to today in Bangkok
+        in: query
+        name: start_date
+        type: string
+      - description: End date YYYY-MM-DD; defaults to six days after start_date
+        in: query
+        name: end_date
+        type: string
+      - description: ENG 3, ENG 100, or ENG 4
+        in: query
+        name: building
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sheetbooking.WeeklyResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+      summary: Weekly OS spreadsheet room schedule
       tags:
       - sheet-bookings
   /api/v1/auth/logout:

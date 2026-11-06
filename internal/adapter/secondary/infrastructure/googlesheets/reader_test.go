@@ -17,7 +17,7 @@ func TestList(t *testing.T) {
 	for i := range row {
 		row[i] = ""
 	}
-	row[0], row[5], row[13] = "123", "Requester", "Room A"
+	row[0], row[2], row[5], row[13] = "123", "Event", "Requester", "Room A"
 	row[15], row[16], row[17], row[18], row[30] = "2026-11-04", "2026-11-04", "09:00", "10:00", "อนุมัติแล้ว"
 	for _, tc := range []struct {
 		name       string
@@ -58,7 +58,7 @@ func TestList(t *testing.T) {
 				t.Fatalf("unexpected bookings: %+v", bookings)
 			}
 			if tc.wantLength == 2 {
-				if b := bookings[0]; b.ID != "123" || b.Name != "Requester" || b.Room != "Room A" || b.StartDate != "2026-11-04" || b.EndDate != "2026-11-04" || b.StartTime != "09:00" || b.EndTime != "10:00" || b.Status != "approved" {
+				if b := bookings[0]; b.ID != "123" || b.Title != "Event" || b.Name != "Requester" || b.Room != "Room A" || b.StartDate != "2026-11-04" || b.EndDate != "2026-11-04" || b.StartTime != "09:00" || b.EndTime != "10:00" || b.Status != "approved" {
 					t.Fatalf("wrong column mapping: %+v", b)
 				}
 				if b := bookings[1]; b.ID != "456" || b.Name != "" || b.Room != "" || b.StartDate != "" || b.EndDate != "" || b.StartTime != "" || b.EndTime != "" || b.Status != "unknown" {

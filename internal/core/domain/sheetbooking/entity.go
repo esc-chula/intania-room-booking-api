@@ -4,6 +4,7 @@ package sheetbooking
 type Booking struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
+	Title      string `json:"-"`
 	Room       string `json:"room"`
 	StartDate  string `json:"start_date"`
 	EndDate    string `json:"end_date"`
@@ -43,4 +44,26 @@ type CalendarResult struct {
 	Year  int   `json:"year"`
 	Month int   `json:"month"`
 	Days  []Day `json:"days"`
+}
+
+type WeeklyBooking struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	StartAt     string `json:"start_at"`
+	EndAt       string `json:"end_at"`
+	Status      string `json:"status"`
+	HasConflict bool   `json:"has_conflict"`
+}
+
+type WeeklyRoom struct {
+	ID       string          `json:"id"`
+	Building string          `json:"building"`
+	Name     string          `json:"name"`
+	Bookings []WeeklyBooking `json:"bookings"`
+}
+
+type WeeklyResult struct {
+	StartDate string       `json:"start_date"`
+	EndDate   string       `json:"end_date"`
+	Rooms     []WeeklyRoom `json:"rooms"`
 }

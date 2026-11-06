@@ -71,10 +71,6 @@ func run() error {
 	if err := json.Unmarshal(mapping, &rooms); err != nil {
 		return err
 	}
-	buildings := make(map[string]bool)
-	for name := range rooms {
-		buildings[name] = true
-	}
 	sheetReader, err := googlesheets.New(ctx, c.SpreadsheetID, c.SheetRange)
 	if err != nil {
 		return err
@@ -83,7 +79,7 @@ func run() error {
 		Auth:              httpauth.New(authService, logger, strings.HasPrefix(c.GoogleRedirectURL, "https://"), c.AuthCookieSameSite),
 		GoogleAuth:        googleAuth,
 		Health:            healthHandler,
-		SheetBookings:     httpsheetbooking.New(sheetbooking.New(sheetReader, buildings), logger),
+		SheetBookings:     httpsheetbooking.New(sheetbooking.New(sheetReader, rooms), logger),
 		Logger:            logger,
 		AppEnv:            c.AppEnv,
 		FrontendURL:       c.FrontendURL,

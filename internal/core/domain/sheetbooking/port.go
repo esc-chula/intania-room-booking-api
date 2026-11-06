@@ -7,6 +7,7 @@ type Service interface {
 	ValidBuilding(string) bool
 	List(context.Context, Query) (Page, error)
 	Calendar(context.Context, int, int, string) (CalendarResult, error)
+	Weekly(context.Context, string, string, string) (WeeklyResult, error)
 }
 
 type Reader interface {

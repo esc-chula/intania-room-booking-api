@@ -16,7 +16,7 @@ func TestCalendarAndList(t *testing.T) {
 		{ID: "4", Room: "ENG 3/A", StartDate: "2026-08-01", EndDate: "2026-08-01", StartTime: "10:00", EndTime: "12:00", Status: "timeline"},
 		{ID: "5", Room: "ENG 100/A", StartDate: "bad", EndDate: "bad", Status: "needs_revision"},
 	}
-	s := New(rows, map[string]bool{"ENG 100": true, "ENG 3": true})
+	s := New(rows, map[string][]string{"ENG 100": {"A"}, "ENG 3": {"A"}})
 	cal, e := s.Calendar(context.Background(), 2026, 8, "ENG 100")
 	if e != nil {
 		t.Fatal(e)
@@ -34,5 +34,41 @@ func TestCalendarAndList(t *testing.T) {
 	all, e := s.List(context.Background(), Query{Page: 1, PageSize: 20})
 	if e != nil || all.Total != 5 || all.Items[4].ID != "5" {
 		t.Fatalf("all: %+v %v", all, e)
+	}
+}
+
+func TestWeekly(t *testing.T) {
+	rows := fakeReader{
+		{ID: "7", Title: "Event", Room: "ENG 3/301", StartDate: "2026-11-01", EndDate: "2026-11-03", StartTime: "09:00", EndTime: "11:00", Status: "approved"},
+		{ID: "8", Title: "Other", Room: "ENG 3/301", StartDate: "2026-11-02", EndDate: "2026-11-02", StartTime: "10:00", EndTime: "12:00", Status: "submitted"},
+		{ID: "", Room: "True Lab", StartDate: "2026-11-02", EndDate: "2026-11-02", StartTime: "08:00", EndTime: "09:00", Status: "unknown"},
+		{ID: "9", Room: "ENG 100/301", StartDate: "bad", EndDate: "bad", StartTime: "09:00", EndTime: "10:00"},
+		{ID: "10", Room: "missing", StartDate: "2026-11-02", EndDate: "2026-11-02", StartTime: "09:00", EndTime: "10:00"},
+	}
+	s := New(rows, map[string][]string{"ENG 3": {"301", "204"}, "ENG 100": {"301"}, "ห้องพิเศษ + ห้องภาค": {"True Lab"}})
+	result, err := s.Weekly(context.Background(), "2026-11-02", "2026-11-02", "")
+	if err != nil || len(result.Rooms) != 4 {
+		t.Fatalf("weekly: %+v %v", result, err)
+	}
+	var eng3, eng100, special WeeklyRoom
+	for _, room := range result.Rooms {
+		switch {
+		case room.Building == "ENG 3" && room.Name == "301":
+			eng3 = room
+		case room.Building == "ENG 100":
+			eng100 = room
+		case room.Name == "True Lab":
+			special = room
+		}
+	}
+	if len(eng3.Bookings) != 2 || !eng3.Bookings[0].HasConflict || !eng3.Bookings[1].HasConflict || eng3.Bookings[0].StartAt != "2026-11-02T09:00:00+07:00" || len(eng100.Bookings) != 0 || eng3.ID == eng100.ID {
+		t.Fatalf("room grouping: %+v %+v", eng3, eng100)
+	}
+	if len(special.Bookings) != 1 || special.Bookings[0].ID != "-1" || special.Bookings[0].HasConflict {
+		t.Fatalf("special room: %+v", special)
+	}
+	longer, err := s.Weekly(context.Background(), "2026-11-01", "2026-11-03", "ENG 3")
+	if err != nil || len(longer.Rooms) != 2 || len(longer.Rooms[1].Bookings) != 4 {
+		t.Fatalf("multi-day or building filter: %+v %v", longer, err)
 	}
 }

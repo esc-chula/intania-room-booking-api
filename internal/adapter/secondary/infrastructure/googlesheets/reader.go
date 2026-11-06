@@ -45,6 +45,7 @@ func (r *Reader) List(ctx context.Context) ([]sheetbooking.Booking, error) {
 	for _, row := range response.Values {
 		bookings = append(bookings, sheetbooking.Booking{
 			ID:        cell(row, 0),
+			Title:     cell(row, 2),
 			Name:      cell(row, 5),
 			Room:      cell(row, 13),
 			StartDate: cell(row, 15),
