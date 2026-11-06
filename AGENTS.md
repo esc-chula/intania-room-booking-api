@@ -23,18 +23,19 @@ docs/                                       # generated Swaggo Go/JSON/YAML
 .github/workflows/ci.yml                      # automated checks
 ```
 
-Tests live beside their source files as `*_test.go`. For new features, useful file names are `entity.go`, `port.go`, and `service.go` in the domain; `handler.go` and `dto.go` in an HTTP feature package; and `room.go` or `booking.go` in the PostgreSQL repository package. Create only files the feature actually needs.
+Tests live beside their source files as `*_test.go`. Implemented auth and sheet-booking domain packages use `entity.go` for data types, `port.go` for inbound service and outbound dependency interfaces, and `service.go` for use cases. The user package currently needs only `entity.go`; other domain folders remain placeholders. For new features, useful file names are `entity.go`, `port.go`, and `service.go` in the domain; `handler.go` and `dto.go` in an HTTP feature package; and `room.go` or `booking.go` in the PostgreSQL repository package. Create only files the feature actually needs.
 
 ## Architecture & Dependency Rules
 
 ```text
-HTTP handler → Domain service → Repository port
-                                     ↑
-                         PostgreSQL / Google Sheets adapter
+HTTP handler → Domain service port → Domain service → Repository/reader port
+                                                             ↑
+                                             PostgreSQL / Google Sheets adapter
 ```
 
 - Core domain packages must not import `chi`, `net/http`, `pgx`, Swaggo, configuration/environment packages, or concrete repository implementations.
 - `cmd/api/main.go` owns dependency injection and application wiring. Do not add a dependency injection framework.
+- HTTP handlers depend on domain service interfaces, while concrete services implement those inbound ports. Keep outbound repository, token, and reader ports in the owning domain package. Bootstrap commands invoke auth domain use cases before repository writes.
 - Domain services own business use cases: advance-booking rules, room permissions, opening hours, overrides, submission, cancellation, approval, and conflict checks.
 - HTTP handlers decode and validate API input, invoke services, and translate results into HTTP responses. Keep business rules out of handlers and middleware.
 - Operational health handlers may use an infrastructure dependency directly; they need no artificial domain service.

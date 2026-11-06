@@ -21,43 +21,17 @@ var (
 	ErrBootstrapAdminEmailExists = errors.New("bootstrap admin email belongs to a non-admin user")
 )
 
-type Repository interface {
-	ResolveGoogleUser(context.Context, string, string, string, string) (user.User, error)
-	CreateAdmin(context.Context, string) (user.User, error)
-	FindUserByID(context.Context, string) (user.User, error)
-	FindAdmin(context.Context) (user.User, error)
-}
-
-type Tokens interface {
-	Issue(string) (string, error)
-	Verify(string) (string, error)
-}
-
-type GoogleIdentity struct {
-	Subject       string
-	Email         string
-	EmailVerified bool
-	HostedDomain  string
-	FirstName     string
-	LastName      string
-}
-
-type Result struct {
-	AccessToken string    `json:"access_token"`
-	TokenType   string    `json:"token_type"`
-	ExpiresIn   int       `json:"expires_in"`
-	User        user.User `json:"user"`
-}
-
-type Service struct {
-	repository    Repository
+type service struct {
+	repository    UserRepository
 	tokens        Tokens
 	allowedDomain string
 	allowedSuffix string
 }
 
-func New(repository Repository, tokens Tokens, allowedDomain, allowedSuffix string) *Service {
-	return &Service{repository: repository, tokens: tokens, allowedDomain: allowedDomain, allowedSuffix: allowedSuffix}
+var _ Service = (*service)(nil)
+
+func New(repository UserRepository, tokens Tokens, allowedDomain, allowedSuffix string) Service {
+	return &service{repository: repository, tokens: tokens, allowedDomain: allowedDomain, allowedSuffix: allowedSuffix}
 }
 
 func EligibleGoogleEmail(email, hostedDomain string, verified bool, allowedDomain, allowedSuffix string) bool {
@@ -72,7 +46,7 @@ func EligibleGoogleEmail(email, hostedDomain string, verified bool, allowedDomai
 	return err == nil && address.Address == email && len(email) <= 254
 }
 
-func (s *Service) SignInGoogle(ctx context.Context, identity GoogleIdentity) (Result, error) {
+func (s *service) SignInGoogle(ctx context.Context, identity GoogleIdentity) (Result, error) {
 	if identity.Subject == "" || !EligibleGoogleEmail(identity.Email, identity.HostedDomain, identity.EmailVerified, s.allowedDomain, s.allowedSuffix) {
 		return Result{}, ErrIneligible
 	}
@@ -104,7 +78,7 @@ func numericStudentID(id string) bool {
 	return true
 }
 
-func BootstrapAdmin(ctx context.Context, repository Repository, email, allowedDomain, allowedSuffix string) (bool, error) {
+func BootstrapAdmin(ctx context.Context, repository AdminBootstrapRepository, email, allowedDomain, allowedSuffix string) (bool, error) {
 	if _, err := repository.FindAdmin(ctx); err == nil {
 		return false, nil
 	} else if !errors.Is(err, ErrNotFound) {
@@ -126,7 +100,7 @@ func BootstrapAdmin(ctx context.Context, repository Repository, email, allowedDo
 	return true, nil
 }
 
-func (s *Service) Authenticate(ctx context.Context, token string) (user.User, error) {
+func (s *service) Authenticate(ctx context.Context, token string) (user.User, error) {
 	id, err := s.tokens.Verify(token)
 	if err != nil {
 		return user.User{}, ErrUnauthorized
@@ -138,10 +112,38 @@ func (s *Service) Authenticate(ctx context.Context, token string) (user.User, er
 	return u, err
 }
 
-func (s *Service) result(u user.User) (Result, error) {
+func (s *service) result(u user.User) (Result, error) {
 	token, err := s.tokens.Issue(u.ID)
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{AccessToken: token, TokenType: "Bearer", ExpiresIn: int(TokenLifetime.Seconds()), User: u}, nil
+}
+
+// ParseOSStudentIDs validates the entire allowlist before the bootstrap command writes anything.
+func ParseOSStudentIDs(raw, suffix string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	seen := make(map[string]bool)
+	var ids []string
+	for part := range strings.SplitSeq(raw, ",") {
+		id := strings.TrimSpace(part)
+		if !numericStudentID(id) || !strings.HasSuffix(id, suffix) {
+			return nil, ErrInvalidInput
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+// BootstrapOS persists IDs that ParseOSStudentIDs has validated.
+func BootstrapOS(ctx context.Context, repository OSBootstrapRepository, ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	return repository.SeedOSUsers(ctx, ids)
 }

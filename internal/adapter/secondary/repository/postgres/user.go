@@ -14,6 +14,12 @@ import (
 
 type Users struct{ pool *pgxpool.Pool }
 
+var (
+	_ auth.UserRepository           = (*Users)(nil)
+	_ auth.AdminBootstrapRepository = (*Users)(nil)
+	_ auth.OSBootstrapRepository    = (*Users)(nil)
+)
+
 func NewUsers(pool *pgxpool.Pool) *Users { return &Users{pool: pool} }
 
 const userColumns = `id::text, COALESCE(first_name, ''), COALESCE(last_name, ''), COALESCE(email, ''), COALESCE(student_id, ''), role::text, COALESCE(active, false)`

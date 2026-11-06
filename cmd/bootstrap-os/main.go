@@ -36,7 +36,7 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
-	changed, err := postgres.NewUsers(pool).SeedOSUsers(context.Background(), ids)
+	changed, err := auth.BootstrapOS(context.Background(), postgres.NewUsers(pool), ids)
 	if err != nil {
 		return err
 	}

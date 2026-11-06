@@ -127,3 +127,32 @@ func TestParseOSStudentIDs(t *testing.T) {
 		}
 	}
 }
+
+type fakeOSSeeder struct {
+	ids []string
+	err error
+}
+
+func (r *fakeOSSeeder) SeedOSUsers(_ context.Context, ids []string) (int, error) {
+	r.ids = ids
+	return len(ids), r.err
+}
+
+func TestBootstrapOS(t *testing.T) {
+	ids, err := ParseOSStudentIDs("6730000021, 6720000021,6730000021", "21")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := &fakeOSSeeder{}
+	changed, err := BootstrapOS(context.Background(), repo, ids)
+	if err != nil || changed != 2 || len(repo.ids) != 2 {
+		t.Fatalf("bootstrap OS: changed=%d ids=%v err=%v", changed, repo.ids, err)
+	}
+	if changed, err := BootstrapOS(context.Background(), nil, nil); err != nil || changed != 0 {
+		t.Fatalf("empty bootstrap: changed=%d err=%v", changed, err)
+	}
+	repo.err = ErrIdentityConflict
+	if _, err := BootstrapOS(context.Background(), repo, ids); !errors.Is(err, ErrIdentityConflict) {
+		t.Fatalf("repository error: %v", err)
+	}
+}

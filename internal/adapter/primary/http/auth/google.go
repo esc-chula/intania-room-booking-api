@@ -32,7 +32,7 @@ type oauthTransaction struct {
 }
 
 type GoogleHandler struct {
-	service     *domainauth.Service
+	service     domainauth.Service
 	logger      *slog.Logger
 	config      oauth2.Config
 	client      *http.Client
@@ -45,7 +45,7 @@ type GoogleHandler struct {
 	states      map[string]oauthTransaction
 }
 
-func NewGoogle(ctx context.Context, service *domainauth.Service, logger *slog.Logger, clientID, clientSecret, redirectURL, frontendURL, domain string, sameSite http.SameSite) (*GoogleHandler, error) {
+func NewGoogle(ctx context.Context, service domainauth.Service, logger *slog.Logger, clientID, clientSecret, redirectURL, frontendURL, domain string, sameSite http.SameSite) (*GoogleHandler, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	validator, err := idtoken.NewValidator(ctx, option.WithHTTPClient(client))
 	if err != nil {

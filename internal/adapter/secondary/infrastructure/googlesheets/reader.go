@@ -21,6 +21,8 @@ type Reader struct {
 	expires       time.Time
 }
 
+var _ sheetbooking.Reader = (*Reader)(nil)
+
 func New(ctx context.Context, spreadsheetID, readRange string) (*Reader, error) {
 	service, err := sheets.NewService(ctx, option.WithScopes(sheets.SpreadsheetsReadonlyScope))
 	if err != nil {

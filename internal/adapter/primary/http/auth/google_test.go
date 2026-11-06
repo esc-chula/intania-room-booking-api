@@ -180,6 +180,23 @@ func TestGoogleFlowSuccessAndReplay(t *testing.T) {
 	}
 }
 
+func TestGoogleHandlerAcceptsServicePort(t *testing.T) {
+	h, _ := testGoogleHandler(t)
+	service := &stubService{result: domainauth.Result{AccessToken: "stub-jwt", ExpiresIn: 3600}}
+	h.service = service
+	state, cookie := startGoogleFlow(t, h, true)
+	response := callback(h, state, "valid-code", "", cookie)
+	if response.Code != http.StatusFound || service.signInCalls != 1 {
+		t.Fatalf("status=%d sign-in calls=%d", response.Code, service.signInCalls)
+	}
+	for _, cookie := range response.Result().Cookies() {
+		if cookie.Name == authCookieName && cookie.Value == "stub-jwt" {
+			return
+		}
+	}
+	t.Fatal("missing stub service token cookie")
+}
+
 func TestGoogleCookiesReachProtectedPath(t *testing.T) {
 	h, _ := testGoogleHandler(t)
 	jar, err := cookiejar.New(nil)

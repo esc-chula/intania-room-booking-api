@@ -13,7 +13,7 @@ import (
 )
 
 type Handler struct {
-	service  *domainauth.Service
+	service  domainauth.Service
 	logger   *slog.Logger
 	secure   bool
 	sameSite http.SameSite
@@ -24,7 +24,7 @@ type errorResponse struct {
 }
 type userContextKey struct{}
 
-func New(service *domainauth.Service, logger *slog.Logger, secure bool, sameSite http.SameSite) *Handler {
+func New(service domainauth.Service, logger *slog.Logger, secure bool, sameSite http.SameSite) *Handler {
 	return &Handler{service: service, logger: logger, secure: secure, sameSite: sameSite}
 }
 

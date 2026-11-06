@@ -16,6 +16,8 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 
 type JWT struct{ secret []byte }
 
+var _ auth.Tokens = (*JWT)(nil)
+
 func New(secret string) (*JWT, error) {
 	if len(secret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must contain at least 32 bytes")

@@ -9,16 +9,21 @@ booking rows live from Google Sheets. Native booking APIs and equipment features
 are not implemented yet.
 
 ```text
-HTTP handler -> Domain service -> Domain port
-                                     ^
-                                     |
-                         PostgreSQL / Google Sheets adapter
+HTTP handler -> Domain Service port -> Domain service -> Domain repository/reader port
+                                                             ^
+                                                             |
+                                             PostgreSQL / Google Sheets adapter
 
 cmd/api wires config -> logger -> pgxpool -> repositories/services -> handlers -> Chi
 ```
 
-Auth and user domain packages implement authentication; other domain folders
-remain placeholders. Operational health handlers need no domain service.
+Implemented auth and sheet-booking domain packages keep entities in `entity.go`,
+inbound and outbound ports in `port.go`, and use cases in `service.go`. HTTP
+handlers depend on the service ports; PostgreSQL, token, and Google Sheets
+adapters implement the outbound ports. The ADMIN and OS bootstrap commands also
+call auth domain use cases. The user package currently needs only `entity.go`;
+other domain folders remain placeholders. Operational health handlers need no
+domain service.
 Repositories use parameterized pgx SQL directly, without an ORM
 or sqlc. The temporary Go module path is `github.com/MadManJJ/room-reservation-api` because
 this repository has no Git remote; replace it and its imports when the real

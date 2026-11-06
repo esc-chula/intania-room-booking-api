@@ -8,60 +8,18 @@ import (
 	"time"
 )
 
-// Booking is a row from the existing OS spreadsheet, not a native booking request.
-type Booking struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Room       string `json:"room"`
-	StartDate  string `json:"start_date"`
-	EndDate    string `json:"end_date"`
-	StartTime  string `json:"start_time"`
-	EndTime    string `json:"end_time"`
-	Status     string `json:"status"`
-	Conflicted bool   `json:"conflicted"`
-}
-
-type Reader interface {
-	List(context.Context) ([]Booking, error)
-}
-type Service struct {
+type service struct {
 	reader    Reader
 	buildings map[string]bool
 }
 
-func New(reader Reader, buildings map[string]bool) *Service {
-	return &Service{reader: reader, buildings: buildings}
-}
-func (s *Service) ValidBuilding(name string) bool {
-	return s.buildings[name] && strings.HasPrefix(name, "ENG ")
-}
+var _ Service = (*service)(nil)
 
-type Query struct {
-	Year, Month, Page, PageSize int
-	Building, Status            string
+func New(reader Reader, buildings map[string]bool) Service {
+	return &service{reader: reader, buildings: buildings}
 }
-type Page struct {
-	Items    []Booking `json:"items"`
-	Page     int       `json:"page"`
-	PageSize int       `json:"page_size"`
-	Total    int       `json:"total"`
-}
-type Counts struct {
-	Approved      int `json:"approved"`
-	Cancelled     int `json:"cancelled"`
-	Submitted     int `json:"submitted"`
-	Timeline      int `json:"timeline"`
-	NeedsRevision int `json:"needs_revision"`
-	Conflicted    int `json:"conflicted"`
-}
-type Day struct {
-	Date   string `json:"date"`
-	Counts Counts `json:"counts"`
-}
-type CalendarResult struct {
-	Year  int   `json:"year"`
-	Month int   `json:"month"`
-	Days  []Day `json:"days"`
+func (s *service) ValidBuilding(name string) bool {
+	return s.buildings[name] && strings.HasPrefix(name, "ENG ")
 }
 
 type parsed struct {
@@ -129,7 +87,7 @@ func markConflicts(rows []parsed, year, month int) {
 		}
 	}
 }
-func (s *Service) List(ctx context.Context, q Query) (Page, error) {
+func (s *service) List(ctx context.Context, q Query) (Page, error) {
 	rows, e := s.reader.List(ctx)
 	if e != nil {
 		return Page{}, e
@@ -148,7 +106,7 @@ func (s *Service) List(ctx context.Context, q Query) (Page, error) {
 	}
 	return page, nil
 }
-func (s *Service) Calendar(ctx context.Context, year, month int, building string) (CalendarResult, error) {
+func (s *service) Calendar(ctx context.Context, year, month int, building string) (CalendarResult, error) {
 	rows, e := s.reader.List(ctx)
 	if e != nil {
 		return CalendarResult{}, e

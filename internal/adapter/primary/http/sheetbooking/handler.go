@@ -13,7 +13,7 @@ import (
 )
 
 type Handler struct {
-	service *domainbooking.Service
+	service domainbooking.Service
 	logger  *slog.Logger
 }
 
@@ -21,7 +21,7 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
-func New(service *domainbooking.Service, logger *slog.Logger) *Handler {
+func New(service domainbooking.Service, logger *slog.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
