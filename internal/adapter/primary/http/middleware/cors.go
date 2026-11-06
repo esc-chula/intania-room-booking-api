@@ -5,9 +5,14 @@ import (
 	"net/url"
 )
 
-func FrontendCORS(frontendURL string) func(http.Handler) http.Handler {
+func FrontendCORS(frontendURL, developmentAPIURL string) func(http.Handler) http.Handler {
 	parsed, _ := url.Parse(frontendURL) // Configuration validates the URL at startup.
 	allowedOrigin := parsed.Scheme + "://" + parsed.Host
+	api, _ := url.Parse(developmentAPIURL)
+	apiOrigin := ""
+	if api != nil && api.Scheme != "" && api.Host != "" {
+		apiOrigin = api.Scheme + "://" + api.Host
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
@@ -23,7 +28,7 @@ func FrontendCORS(frontendURL string) func(http.Handler) http.Handler {
 					w.WriteHeader(http.StatusNoContent)
 					return
 				}
-			} else if origin != "" && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			} else if origin != "" && origin != apiOrigin && r.Method != http.MethodGet && r.Method != http.MethodHead {
 				http.Error(w, "forbidden origin", http.StatusForbidden)
 				return
 			}

@@ -124,6 +124,34 @@ func TestMeUsesCurrentUser(t *testing.T) {
 	}
 }
 
+func TestLogoutOrigins(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	for _, tc := range []struct {
+		env, origin string
+		want        int
+	}{
+		{"development", "http://localhost:8080", http.StatusNoContent},
+		{"development", "http://localhost:3000", http.StatusNoContent},
+		{"development", "http://evil.example", http.StatusForbidden},
+		{"production", "http://localhost:8080", http.StatusForbidden},
+	} {
+		router := NewRouter(RouterConfig{Auth: httpauth.New(nil, logger, false, http.SameSiteLaxMode), Health: health.New(pinger{}, logger), Logger: logger, AppEnv: tc.env, FrontendURL: "http://localhost:3000", GoogleRedirectURL: "http://localhost:8080/auth/google/callback"})
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+		request.Header.Set("Origin", tc.origin)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, request)
+		if w.Code != tc.want {
+			t.Fatalf("%s origin %s: got %d, want %d", tc.env, tc.origin, w.Code, tc.want)
+		}
+		if tc.want == http.StatusNoContent {
+			cookies := w.Result().Cookies()
+			if len(cookies) != 1 || cookies[0].Name != "room_auth" || cookies[0].Path != "/api/v1" || cookies[0].MaxAge != -1 {
+				t.Fatalf("logout cookie: %+v", cookies)
+			}
+		}
+	}
+}
+
 func TestGoogleRoutesAndCORS(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	repo := &authRepository{current: user.User{ID: "11111111-1111-4111-8111-111111111111", Active: true}}

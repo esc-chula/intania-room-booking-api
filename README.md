@@ -201,6 +201,8 @@ use `AUTH_COOKIE_SAME_SITE=none` with HTTPS and `credentials: 'include'`. The AP
 allows credentialed CORS only from `FRONTEND_URL`. Some browsers block cross-site
 cookies even with these settings; a same-site reverse proxy can use
 `AUTH_COOKIE_SAME_SITE=lax` for reliable cookie delivery.
+In development, Swagger can also send logout requests from the API origin in
+`GOOGLE_REDIRECT_URL`; open Swagger using that same host and port.
 
 ## Bootstrap administrator
 

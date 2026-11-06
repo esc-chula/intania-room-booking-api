@@ -15,20 +15,25 @@ import (
 )
 
 type RouterConfig struct {
-	Auth          *auth.Handler
-	GoogleAuth    *auth.GoogleHandler
-	Health        *health.Handler
-	SheetBookings *sheetbooking.Handler
-	Logger        *slog.Logger
-	AppEnv        string
-	FrontendURL   string
+	Auth              *auth.Handler
+	GoogleAuth        *auth.GoogleHandler
+	Health            *health.Handler
+	SheetBookings     *sheetbooking.Handler
+	Logger            *slog.Logger
+	AppEnv            string
+	FrontendURL       string
+	GoogleRedirectURL string
 }
 
 func NewRouter(config RouterConfig) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	if config.FrontendURL != "" {
-		r.Use(requestmiddleware.FrontendCORS(config.FrontendURL))
+		apiURL := ""
+		if config.AppEnv == "development" {
+			apiURL = config.GoogleRedirectURL
+		}
+		r.Use(requestmiddleware.FrontendCORS(config.FrontendURL, apiURL))
 	}
 	r.Use(requestmiddleware.RequestLogger(config.Logger))
 	r.Use(middleware.Recoverer)

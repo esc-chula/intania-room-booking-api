@@ -80,13 +80,14 @@ func run() error {
 		return err
 	}
 	router := httpadapter.NewRouter(httpadapter.RouterConfig{
-		Auth:          httpauth.New(authService, logger, strings.HasPrefix(c.GoogleRedirectURL, "https://"), c.AuthCookieSameSite),
-		GoogleAuth:    googleAuth,
-		Health:        healthHandler,
-		SheetBookings: httpsheetbooking.New(sheetbooking.New(sheetReader, buildings), logger),
-		Logger:        logger,
-		AppEnv:        c.AppEnv,
-		FrontendURL:   c.FrontendURL,
+		Auth:              httpauth.New(authService, logger, strings.HasPrefix(c.GoogleRedirectURL, "https://"), c.AuthCookieSameSite),
+		GoogleAuth:        googleAuth,
+		Health:            healthHandler,
+		SheetBookings:     httpsheetbooking.New(sheetbooking.New(sheetReader, buildings), logger),
+		Logger:            logger,
+		AppEnv:            c.AppEnv,
+		FrontendURL:       c.FrontendURL,
+		GoogleRedirectURL: c.GoogleRedirectURL,
 	})
 	server := &http.Server{
 		Addr:              c.HTTPAddr,
