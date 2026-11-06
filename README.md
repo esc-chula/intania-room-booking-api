@@ -225,13 +225,22 @@ make bootstrap-os
 
 ## OS spreadsheet bookings
 
-`GET /api/v1/admin/sheet-bookings` reads the configured Google Sheet on every
-request and returns an array of rows with `id`, `name`, `room`, `start_date`,
-`end_date`, `start_time`, and `end_time` string fields. It uses columns A, F, N,
-P, Q, R, and S from the configured range; short rows produce empty strings.
-There is no PostgreSQL import, pagination, or filtering. An empty sheet returns
-`[]`. The endpoint is available in development and production; Swagger UI is
-development-only.
+`GET /api/v1/admin/sheet-bookings` returns `{ "items": [], "page": 1,
+"page_size": 20, "total": 0 }`. It accepts `page` (default 1), `page_size`
+(default 20, maximum 100), `year` and `month` together, `building`, and
+`status`. Month filtering includes rows whose date ranges overlap the month.
+`GET /api/v1/admin/sheet-bookings/calendar` requires `year` and `month` and
+accepts an optional `building`. It returns sparse daily counts for `approved`,
+`cancelled`, `submitted`, `timeline`, `needs_revision`, and `conflicted`.
+The conflict count includes active rows that overlap another active booking
+for the same room and daily time window; it is additional to status counts.
+Both endpoints share a 60-second in-memory Sheet cache. A failed refresh
+returns 502. The response uses `Cache-Control: no-store`.
+
+The Sheet range must begin at column A and include column AE (for example
+`จองห้อง!A9:AM`). Booking fields come from A, F, N, P, Q, R, S, and AE.
+Building filters accept ENG building keys from `rooms.json` and match the room
+prefix before `/`. Unprefixed rooms appear only without a building filter.
 
 The endpoint requires the auth cookie for a currently active OS
 or ADMIN user. Missing or invalid tokens return 401, other roles return 403, and a

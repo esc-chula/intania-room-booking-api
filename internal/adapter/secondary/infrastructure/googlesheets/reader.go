@@ -3,6 +3,9 @@ package googlesheets
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/MadManJJ/room-reservation-api/internal/core/domain/sheetbooking"
 	"google.golang.org/api/option"
@@ -13,6 +16,9 @@ type Reader struct {
 	service       *sheets.Service
 	spreadsheetID string
 	readRange     string
+	mu            sync.Mutex
+	cached        []sheetbooking.Booking
+	expires       time.Time
 }
 
 func New(ctx context.Context, spreadsheetID, readRange string) (*Reader, error) {
@@ -24,6 +30,11 @@ func New(ctx context.Context, spreadsheetID, readRange string) (*Reader, error) 
 }
 
 func (r *Reader) List(ctx context.Context) ([]sheetbooking.Booking, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cached != nil && time.Now().Before(r.expires) {
+		return append([]sheetbooking.Booking{}, r.cached...), nil
+	}
 	response, err := r.service.Spreadsheets.Values.Get(r.spreadsheetID, r.readRange).Context(ctx).Do()
 	if err != nil {
 		return nil, err
@@ -38,9 +49,12 @@ func (r *Reader) List(ctx context.Context) ([]sheetbooking.Booking, error) {
 			EndDate:   cell(row, 16),
 			StartTime: cell(row, 17),
 			EndTime:   cell(row, 18),
+			Status:    status(cell(row, 30)),
 		})
 	}
-	return bookings, nil
+	r.cached = bookings
+	r.expires = time.Now().Add(time.Minute)
+	return append([]sheetbooking.Booking{}, bookings...), nil
 }
 
 func cell(row []interface{}, index int) string {
@@ -48,4 +62,21 @@ func cell(row []interface{}, index int) string {
 		return ""
 	}
 	return fmt.Sprint(row[index])
+}
+
+func status(value string) string {
+	switch strings.TrimSpace(value) {
+	case "อนุมัติแล้ว":
+		return "approved"
+	case "ยกเลิกเอกสาร":
+		return "cancelled"
+	case "ส่งเอกสารแล้ว":
+		return "submitted"
+	case "ลง TIMELINE แล้ว":
+		return "timeline"
+	case "แก้ไขเอกสาร":
+		return "needs_revision"
+	default:
+		return "unknown"
+	}
 }

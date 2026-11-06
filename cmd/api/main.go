@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -62,6 +63,18 @@ func run() error {
 			return err
 		}
 	}
+	mapping, err := os.ReadFile("rooms.json")
+	if err != nil {
+		return err
+	}
+	var rooms map[string][]string
+	if err := json.Unmarshal(mapping, &rooms); err != nil {
+		return err
+	}
+	buildings := make(map[string]bool)
+	for name := range rooms {
+		buildings[name] = true
+	}
 	sheetReader, err := googlesheets.New(ctx, c.SpreadsheetID, c.SheetRange)
 	if err != nil {
 		return err
@@ -70,7 +83,7 @@ func run() error {
 		Auth:          httpauth.New(authService, logger, strings.HasPrefix(c.GoogleRedirectURL, "https://"), c.AuthCookieSameSite),
 		GoogleAuth:    googleAuth,
 		Health:        healthHandler,
-		SheetBookings: httpsheetbooking.New(sheetbooking.New(sheetReader), logger),
+		SheetBookings: httpsheetbooking.New(sheetbooking.New(sheetReader, buildings), logger),
 		Logger:        logger,
 		AppEnv:        c.AppEnv,
 		FrontendURL:   c.FrontendURL,

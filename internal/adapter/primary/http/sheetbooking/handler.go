@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	domainbooking "github.com/MadManJJ/room-reservation-api/internal/core/domain/sheetbooking"
@@ -24,28 +25,119 @@ func New(service *domainbooking.Service, logger *slog.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
-// List returns current booking rows from the OS spreadsheet.
+// List returns paginated booking rows from the OS spreadsheet.
 // @Summary List OS spreadsheet bookings
-// @Description Requires a currently active OS or ADMIN user. Reads the configured Google Sheet on every request and returns seven string fields per row.
+// @Description Requires OS or ADMIN. Reads a 60-second cached Sheet snapshot.
 // @Tags sheet-bookings
 // @Produce json
-// @Success 200 {array} domainbooking.Booking
+// @Param year query int false "Calendar year; requires month"
+// @Param month query int false "Month 1-12; requires year"
+// @Param building query string false "ENG building name"
+// @Param status query string false "approved, cancelled, submitted, timeline, needs_revision, or conflicted"
+// @Param page query int false "Page number, default 1"
+// @Param page_size query int false "Page size, default 20, maximum 100"
+// @Success 200 {object} domainbooking.Page
+// @Failure 400 {object} errorResponse
 // @Failure 401 {object} errorResponse
 // @Failure 403 {object} errorResponse
-// @Failure 500 {object} errorResponse
 // @Failure 502 {object} errorResponse
 // @Router /api/v1/admin/sheet-bookings [get]
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	bookings, err := h.service.List(ctx)
-	if err != nil {
-		// Google API errors can include request details; log only the type.
-		h.logger.ErrorContext(r.Context(), "Google Sheets fetch failed", "error_type", fmt.Sprintf("%T", err))
-		respond(w, http.StatusBadGateway, errorResponse{Error: "failed to fetch sheet bookings"})
+	q, ok := h.query(w, r, false)
+	if !ok {
 		return
 	}
-	respond(w, http.StatusOK, bookings)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	page, err := h.service.List(ctx, q)
+	if err != nil {
+		h.fetchError(w, r, err)
+		return
+	}
+	respond(w, http.StatusOK, page)
+}
+
+// Calendar returns daily booking status counts for a month.
+// @Summary Monthly OS spreadsheet booking calendar
+// @Description Requires OS or ADMIN. Conflicted counts active bookings overlapping the same room and daily time window.
+// @Tags sheet-bookings
+// @Produce json
+// @Param year query int true "Calendar year"
+// @Param month query int true "Month 1-12"
+// @Param building query string false "ENG building name"
+// @Success 200 {object} domainbooking.CalendarResult
+// @Failure 400 {object} errorResponse
+// @Failure 401 {object} errorResponse
+// @Failure 403 {object} errorResponse
+// @Failure 502 {object} errorResponse
+// @Router /api/v1/admin/sheet-bookings/calendar [get]
+func (h *Handler) Calendar(w http.ResponseWriter, r *http.Request) {
+	q, ok := h.query(w, r, true)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	result, err := h.service.Calendar(ctx, q.Year, q.Month, q.Building)
+	if err != nil {
+		h.fetchError(w, r, err)
+		return
+	}
+	respond(w, http.StatusOK, result)
+}
+func (h *Handler) fetchError(w http.ResponseWriter, r *http.Request, err error) {
+	h.logger.ErrorContext(r.Context(), "Google Sheets fetch failed", "error_type", fmt.Sprintf("%T", err))
+	respond(w, http.StatusBadGateway, errorResponse{Error: "failed to fetch sheet bookings"})
+}
+func (h *Handler) query(w http.ResponseWriter, r *http.Request, calendar bool) (domainbooking.Query, bool) {
+	v := r.URL.Query()
+	q := domainbooking.Query{Page: 1, PageSize: 20, Building: v.Get("building"), Status: v.Get("status")}
+	bad := func() (domainbooking.Query, bool) {
+		respond(w, http.StatusBadRequest, errorResponse{Error: "invalid query parameters"})
+		return q, false
+	}
+	if y, m := v.Get("year"), v.Get("month"); (y == "") != (m == "") || calendar && y == "" {
+		return bad()
+	} else if y != "" {
+		var err error
+		q.Year, err = strconv.Atoi(y)
+		if err != nil || q.Year < 1 || q.Year > 9999 {
+			return bad()
+		}
+		q.Month, err = strconv.Atoi(m)
+		if err != nil || q.Month < 1 || q.Month > 12 {
+			return bad()
+		}
+	}
+	if q.Building != "" && !h.service.ValidBuilding(q.Building) {
+		return bad()
+	}
+	if calendar {
+		if q.Status != "" || v.Has("page") || v.Has("page_size") {
+			return bad()
+		}
+	} else {
+		switch q.Status {
+		case "", "approved", "cancelled", "submitted", "timeline", "needs_revision", "conflicted":
+		default:
+			return bad()
+		}
+		if v.Has("page") {
+			var err error
+			q.Page, err = strconv.Atoi(v.Get("page"))
+			if err != nil || q.Page < 1 || q.Page > 1000000 {
+				return bad()
+			}
+		}
+		if v.Has("page_size") {
+			var err error
+			q.PageSize, err = strconv.Atoi(v.Get("page_size"))
+			if err != nil || q.PageSize < 1 || q.PageSize > 100 {
+				return bad()
+			}
+		}
+	}
+	return q, true
 }
 
 func respond(w http.ResponseWriter, status int, value any) {

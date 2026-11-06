@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/admin/sheet-bookings": {
             "get": {
-                "description": "Requires a currently active OS or ADMIN user. Reads the configured Google Sheet on every request and returns seven string fields per row.",
+                "description": "Requires OS or ADMIN. Reads a 60-second cached Sheet snapshot.",
                 "produces": [
                     "application/json"
                 ],
@@ -25,14 +25,55 @@ const docTemplate = `{
                     "sheet-bookings"
                 ],
                 "summary": "List OS spreadsheet bookings",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Calendar year; requires month",
+                        "name": "year",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Month 1-12; requires year",
+                        "name": "month",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "ENG building name",
+                        "name": "building",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "approved, cancelled, submitted, timeline, needs_revision, or conflicted",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size, default 20, maximum 100",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/sheetbooking.Booking"
-                            }
+                            "$ref": "#/definitions/sheetbooking.Page"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
                     },
                     "401": {
@@ -47,8 +88,68 @@ const docTemplate = `{
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/sheet-bookings/calendar": {
+            "get": {
+                "description": "Requires OS or ADMIN. Conflicted counts active bookings overlapping the same room and daily time window.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sheet-bookings"
+                ],
+                "summary": "Monthly OS spreadsheet booking calendar",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Calendar year",
+                        "name": "year",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Month 1-12",
+                        "name": "month",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ENG building name",
+                        "name": "building",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.CalendarResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
@@ -238,6 +339,9 @@ const docTemplate = `{
         "sheetbooking.Booking": {
             "type": "object",
             "properties": {
+                "conflicted": {
+                    "type": "boolean"
+                },
                 "end_date": {
                     "type": "string"
                 },
@@ -258,6 +362,80 @@ const docTemplate = `{
                 },
                 "start_time": {
                     "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "sheetbooking.CalendarResult": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sheetbooking.Day"
+                    }
+                },
+                "month": {
+                    "type": "integer"
+                },
+                "year": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sheetbooking.Counts": {
+            "type": "object",
+            "properties": {
+                "approved": {
+                    "type": "integer"
+                },
+                "cancelled": {
+                    "type": "integer"
+                },
+                "conflicted": {
+                    "type": "integer"
+                },
+                "needs_revision": {
+                    "type": "integer"
+                },
+                "submitted": {
+                    "type": "integer"
+                },
+                "timeline": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sheetbooking.Day": {
+            "type": "object",
+            "properties": {
+                "counts": {
+                    "$ref": "#/definitions/sheetbooking.Counts"
+                },
+                "date": {
+                    "type": "string"
+                }
+            }
+        },
+        "sheetbooking.Page": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sheetbooking.Booking"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },

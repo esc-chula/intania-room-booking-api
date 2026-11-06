@@ -12,6 +12,8 @@ definitions:
     type: object
   sheetbooking.Booking:
     properties:
+      conflicted:
+        type: boolean
       end_date:
         type: string
       end_time:
@@ -26,6 +28,54 @@ definitions:
         type: string
       start_time:
         type: string
+      status:
+        type: string
+    type: object
+  sheetbooking.CalendarResult:
+    properties:
+      days:
+        items:
+          $ref: '#/definitions/sheetbooking.Day'
+        type: array
+      month:
+        type: integer
+      year:
+        type: integer
+    type: object
+  sheetbooking.Counts:
+    properties:
+      approved:
+        type: integer
+      cancelled:
+        type: integer
+      conflicted:
+        type: integer
+      needs_revision:
+        type: integer
+      submitted:
+        type: integer
+      timeline:
+        type: integer
+    type: object
+  sheetbooking.Day:
+    properties:
+      counts:
+        $ref: '#/definitions/sheetbooking.Counts'
+      date:
+        type: string
+    type: object
+  sheetbooking.Page:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/sheetbooking.Booking'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
     type: object
   sheetbooking.errorResponse:
     properties:
@@ -54,17 +104,44 @@ info:
 paths:
   /api/v1/admin/sheet-bookings:
     get:
-      description: Requires a currently active OS or ADMIN user. Reads the configured
-        Google Sheet on every request and returns seven string fields per row.
+      description: Requires OS or ADMIN. Reads a 60-second cached Sheet snapshot.
+      parameters:
+      - description: Calendar year; requires month
+        in: query
+        name: year
+        type: integer
+      - description: Month 1-12; requires year
+        in: query
+        name: month
+        type: integer
+      - description: ENG building name
+        in: query
+        name: building
+        type: string
+      - description: approved, cancelled, submitted, timeline, needs_revision, or
+          conflicted
+        in: query
+        name: status
+        type: string
+      - description: Page number, default 1
+        in: query
+        name: page
+        type: integer
+      - description: Page size, default 20, maximum 100
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/sheetbooking.Booking'
-            type: array
+            $ref: '#/definitions/sheetbooking.Page'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
         "401":
           description: Unauthorized
           schema:
@@ -73,15 +150,56 @@ paths:
           description: Forbidden
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
-        "500":
-          description: Internal Server Error
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+      summary: List OS spreadsheet bookings
+      tags:
+      - sheet-bookings
+  /api/v1/admin/sheet-bookings/calendar:
+    get:
+      description: Requires OS or ADMIN. Conflicted counts active bookings overlapping
+        the same room and daily time window.
+      parameters:
+      - description: Calendar year
+        in: query
+        name: year
+        required: true
+        type: integer
+      - description: Month 1-12
+        in: query
+        name: month
+        required: true
+        type: integer
+      - description: ENG building name
+        in: query
+        name: building
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sheetbooking.CalendarResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+        "403":
+          description: Forbidden
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
         "502":
           description: Bad Gateway
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
-      summary: List OS spreadsheet bookings
+      summary: Monthly OS spreadsheet booking calendar
       tags:
       - sheet-bookings
   /api/v1/auth/logout:
