@@ -8,7 +8,6 @@ import (
 	"github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/health"
 	requestmiddleware "github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/middleware"
 	"github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/sheetbooking"
-	"github.com/MadManJJ/room-reservation-api/internal/core/domain/user"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
@@ -46,9 +45,13 @@ func NewRouter(config RouterConfig) http.Handler {
 		})
 	}
 	if config.Auth != nil && config.SheetBookings != nil {
-		r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
-		r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
-		r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
+		// r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
+		// r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
+		// r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
+
+		r.Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
+		r.Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
+		r.Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
 	}
 	if config.GoogleAuth != nil {
 		r.Get("/auth/google/login", config.GoogleAuth.Login)
