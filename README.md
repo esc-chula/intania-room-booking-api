@@ -2,9 +2,9 @@
 
 Go backend foundation using Chi v5, pgx v5/pgxpool, PostgreSQL, log/slog,
 Swaggo v1, and Goose SQL migrations. The single initial migration defines users,
-buildings, rooms, bookings, room scheduling, and audit logs. Google OAuth
+buildings, rooms, bookings, room scheduling, and audit logs. Optional Google OAuth
 creates or finds users and sets one-hour JWT auth cookies. Explicit
-commands bootstrap ADMIN and OS users. An OS/admin-only endpoint reads legacy
+commands bootstrap ADMIN and OS users. Public endpoints read legacy
 booking rows live from Google Sheets. Native booking APIs and equipment features
 are not implemented yet.
 
@@ -14,7 +14,7 @@ HTTP handler -> Domain Service port -> Domain service -> Domain repository/reade
                                                              |
                                              PostgreSQL / Google Sheets adapter
 
-cmd/api wires config -> logger -> pgxpool -> repositories/services -> handlers -> Chi
+cmd/api wires config -> logger -> optional pgxpool/auth -> services -> handlers -> Chi
 ```
 
 Implemented auth and sheet-booking domain packages keep entities in `entity.go`,
@@ -36,23 +36,28 @@ smoke checks. The Makefile uses standard gofmt, mktemp, and diff utilities.
 
 ```sh
 cp .env.example .env
-make db-up
 make tools
-make migrate-up
 make run
 ```
+
+The public Sheets API does not need PostgreSQL. For the optional PostgreSQL-backed
+auth and OAuth features, set `DATABASE_URL` and `JWT_SECRET`, then run `make
+db-up` and `make migrate-up` before starting the API.
 
 `make run` sources the local `.env` as shell assignments and exports them.
 When running `go run ./cmd/api` directly, export environment variables yourself.
 The application does not read `.env` or fall back to `.env.example`.
-`DATABASE_URL`, `JWT_SECRET`, `GOOGLE_SPREADSHEET_ID`, and `GOOGLE_SHEET_RANGE`
-are required. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` together to enable
-Google sign-in locally; both are required in production. Set `FRONTEND_URL` to
-the frontend origin. `BOOTSTRAP_ADMIN_EMAIL` is required when running
+`GOOGLE_SPREADSHEET_ID` and `GOOGLE_SHEET_RANGE` are required. PostgreSQL is
+optional for the public Sheets API: leave `DATABASE_URL` empty to start without
+it. Auth routes require `DATABASE_URL` and `JWT_SECRET`; add both
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to enable Google sign-in. OAuth
+credentials must be set together. Configured PostgreSQL connection failures
+still stop startup. Set `FRONTEND_URL` to the frontend origin when auth is enabled.
+`BOOTSTRAP_ADMIN_EMAIL` is required when running
 `make bootstrap-admin` against a database without an ADMIN. JWT_SECRET must contain at least
 32 bytes excluding surrounding whitespace; use an independently generated
-random secret in production (for example, `openssl rand -hex 32`). The example
-secret is local-only. Other settings default to the values in `.env.example`.
+random secret when enabling auth (for example, `openssl rand -hex 32`). Other
+settings default to the values in `.env.example`.
 Supported `APP_ENV` values are `development` and `production`; log levels are
 `debug`, `info`, `warn`, and `error`. Pool maximum must be positive, minimum
 between zero and maximum, and both timeouts positive. HTTP_ADDR is host:port.
@@ -65,18 +70,21 @@ the volume. No migrations run during startup.
 
 ## Probes and Swagger
 
-- `GET /healthz`: 200 `{"status":"ok"}`, independent of PostgreSQL after startup.
-- `GET /readyz`: a two-second PostgreSQL ping; 200 `{"status":"ready"}` or
-  503 `{"status":"unavailable"}`. Both probes return JSON with `Cache-Control: no-store`.
+- `GET /healthz`: 200 `{"status":"ok"}`; it does not query PostgreSQL.
+- `GET /readyz`: 200 `{"status":"ready"}` when PostgreSQL is not configured;
+  otherwise it pings PostgreSQL with a two-second timeout and returns 503 when
+  unavailable. Both probes return JSON with `Cache-Control: no-store`.
 - Development docs: http://localhost:8080/swagger/index.html and
   http://localhost:8080/swagger/doc.json. Both return 404 in production.
 - All unknown routes, including `/api/v1/rooms`, return 404. Business routes
   use `/api/v1`; the development OAuth browser flow uses the requested
   `/auth/google` paths. Swagger's base path is `/` so both are accurate.
 
-The process fails startup if PostgreSQL is unavailable. SIGINT/SIGTERM drain
-HTTP requests within SHUTDOWN_TIMEOUT (10 seconds by default), then close the
-pool. HTTP header/read/write/idle timeouts are 5/10/15/60 seconds. Request logs
+The process fails startup if configured PostgreSQL is unavailable. With no
+`DATABASE_URL`, it logs that PostgreSQL is disabled and continues without the
+auth and OAuth routes. With no Google OAuth credentials, it logs that OAuth is
+disabled. SIGINT/SIGTERM drain HTTP requests within SHUTDOWN_TIMEOUT (10 seconds
+by default), then close the pool when one is configured. HTTP header/read/write/idle timeouts are 5/10/15/60 seconds. Request logs
 include method, route/path, status, latency, and request ID, without query
 strings, cookies, authentication headers, or bodies. Proxy headers are not used
 to determine client IP.
@@ -102,11 +110,12 @@ curl -i http://localhost:8080/healthz
 curl -i http://localhost:8080/readyz
 curl -i http://localhost:8080/swagger/doc.json
 curl -i http://localhost:8080/api/v1/rooms
-docker compose stop db
-curl -i http://localhost:8080/healthz  # still 200
-curl -i http://localhost:8080/readyz   # now 503
-make db-up
 ```
+
+With `DATABASE_URL` unset, `/readyz` remains 200 because PostgreSQL is not a
+configured dependency. To exercise the configured database probe, set
+`DATABASE_URL`, start the Compose database, and then stop it; `/readyz` returns
+503 while `/healthz` remains 200.
 
 Stop the API with Ctrl-C or SIGTERM. GitHub Actions runs checks without a DB.
 

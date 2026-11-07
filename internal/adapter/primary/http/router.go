@@ -44,11 +44,7 @@ func NewRouter(config RouterConfig) http.Handler {
 			r.Post("/logout", config.Auth.Logout)
 		})
 	}
-	if config.Auth != nil && config.SheetBookings != nil {
-		// r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
-		// r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
-		// r.With(config.Auth.Authenticate, config.Auth.RequireRoles(user.RoleOS)).Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
-
+	if config.SheetBookings != nil {
 		r.Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
 		r.Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
 		r.Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)

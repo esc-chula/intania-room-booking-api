@@ -13,14 +13,29 @@ import (
 	_ "github.com/MadManJJ/room-reservation-api/docs"
 	httpauth "github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/auth"
 	"github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/health"
+	httpsheetbooking "github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/sheetbooking"
 	"github.com/MadManJJ/room-reservation-api/internal/adapter/secondary/infrastructure/token"
 	"github.com/MadManJJ/room-reservation-api/internal/core/domain/auth"
+	domainbooking "github.com/MadManJJ/room-reservation-api/internal/core/domain/sheetbooking"
 	"github.com/MadManJJ/room-reservation-api/internal/core/domain/user"
 )
 
 type pinger struct{}
 
 func (pinger) Ping(context.Context) error { return nil }
+
+type sheetService struct{}
+
+func (sheetService) ValidBuilding(string) bool { return true }
+func (sheetService) List(context.Context, domainbooking.Query) (domainbooking.Page, error) {
+	return domainbooking.Page{Items: []domainbooking.Booking{}}, nil
+}
+func (sheetService) Calendar(context.Context, int, int, string) (domainbooking.CalendarResult, error) {
+	return domainbooking.CalendarResult{Days: []domainbooking.Day{}}, nil
+}
+func (sheetService) Weekly(context.Context, string, string, string) (domainbooking.WeeklyResult, error) {
+	return domainbooking.WeeklyResult{Rooms: []domainbooking.WeeklyRoom{}}, nil
+}
 
 type authRepository struct{ current user.User }
 
@@ -39,18 +54,25 @@ func (r *authRepository) FindUserByID(context.Context, string) (user.User, error
 
 func TestRoutesAndSwagger(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sheets := httpsheetbooking.New(sheetService{}, logger)
 	for _, env := range []string{"development", "production"} {
 		t.Run(env, func(t *testing.T) {
-			router := NewRouter(RouterConfig{Health: health.New(pinger{}, logger), Logger: logger, AppEnv: env})
-			for _, path := range []string{"/healthz", "/readyz", "/swagger/doc.json", "/swagger/index.html", "/api/v1/auth/register", "/api/v1/auth/login", "/auth/google/login"} {
+			router := NewRouter(RouterConfig{Health: health.New(pinger{}, logger), SheetBookings: sheets, Logger: logger, AppEnv: env})
+			for _, path := range []string{"/healthz", "/readyz", "/swagger/doc.json", "/swagger/index.html", "/api/v1/auth/me", "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/admin/sheet-bookings", "/api/v1/admin/sheet-bookings/calendar?year=2026&month=11", "/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02", "/auth/google/login", "/auth/google/callback"} {
 				w := httptest.NewRecorder()
 				router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
 				want := http.StatusOK
 				if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/auth/") || env == "production" && strings.HasPrefix(path, "/swagger/") {
 					want = http.StatusNotFound
 				}
+				if strings.HasPrefix(path, "/api/v1/admin/sheet-bookings") {
+					want = http.StatusOK
+				}
 				if w.Code != want {
 					t.Errorf("GET %s = %d, want %d", path, w.Code, want)
+				}
+				if env == "production" && path == "/api/v1/admin/sheet-bookings" && w.Code != http.StatusOK {
+					t.Fatalf("public sheet endpoint without auth: %d %s", w.Code, w.Body.String())
 				}
 				if path == "/swagger/doc.json" && want == http.StatusOK {
 					var spec struct {

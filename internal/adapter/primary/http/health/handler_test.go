@@ -83,3 +83,12 @@ func TestProbes(t *testing.T) {
 		})
 	}
 }
+
+func TestReadinessWithoutDatabase(t *testing.T) {
+	h := New(nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	w := httptest.NewRecorder()
+	h.Readyz(w, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if w.Code != http.StatusOK || w.Body.String() != "{\"status\":\"ready\"}\n" {
+		t.Fatalf("readiness without database: %d %s", w.Code, w.Body.String())
+	}
+}

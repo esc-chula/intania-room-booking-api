@@ -24,11 +24,12 @@ import (
 	"github.com/MadManJJ/room-reservation-api/internal/config"
 	"github.com/MadManJJ/room-reservation-api/internal/core/domain/auth"
 	"github.com/MadManJJ/room-reservation-api/internal/core/domain/sheetbooking"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // @title Chula Room Booking API
 // @version 0.1.0
-// @description Google OAuth sign-in sets a one-hour HttpOnly authentication cookie. OS-only live spreadsheet bookings are available to authenticated users.
+// @description Live spreadsheet bookings are publicly available. Optional Google OAuth sign-in sets a one-hour HttpOnly authentication cookie.
 // @BasePath /
 func main() {
 	if err := run(); err != nil {
@@ -45,23 +46,41 @@ func run() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: c.LogLevel}))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	pool, err := database.Open(ctx, c)
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
-	healthHandler := health.New(pool, logger)
-	tokens, err := token.New(c.JWTSecret)
-	if err != nil {
-		return err
-	}
-	authService := auth.New(postgres.NewUsers(pool), tokens, c.GoogleAllowedDomain, c.GoogleAllowedSuffix)
-	var googleAuth *httpauth.GoogleHandler
-	if c.GoogleClientID != "" {
-		googleAuth, err = httpauth.NewGoogle(ctx, authService, logger, c.GoogleClientID, c.GoogleClientSecret, c.GoogleRedirectURL, c.FrontendURL, c.GoogleAllowedDomain, c.AuthCookieSameSite)
+	var pool *pgxpool.Pool
+	if c.DatabaseURL == "" {
+		logger.Info("PostgreSQL disabled; DATABASE_URL is not configured")
+	} else {
+		pool, err = database.Open(ctx, c)
 		if err != nil {
 			return err
 		}
+		defer pool.Close()
+	}
+	var pinger health.Pinger
+	if pool != nil {
+		pinger = pool
+	}
+	healthHandler := health.New(pinger, logger)
+	var authHandler *httpauth.Handler
+	var googleAuth *httpauth.GoogleHandler
+	if c.AuthEnabled {
+		tokens, err := token.New(c.JWTSecret)
+		if err != nil {
+			return err
+		}
+		authService := auth.New(postgres.NewUsers(pool), tokens, c.GoogleAllowedDomain, c.GoogleAllowedSuffix)
+		authHandler = httpauth.New(authService, logger, strings.HasPrefix(c.GoogleRedirectURL, "https://"), c.AuthCookieSameSite)
+		if c.GoogleClientID != "" {
+			googleAuth, err = httpauth.NewGoogle(ctx, authService, logger, c.GoogleClientID, c.GoogleClientSecret, c.GoogleRedirectURL, c.FrontendURL, c.GoogleAllowedDomain, c.AuthCookieSameSite)
+			if err != nil {
+				return err
+			}
+		} else {
+			logger.Info("Google OAuth disabled; credentials are not configured")
+		}
+	} else {
+		logger.Info("Authentication disabled; PostgreSQL and JWT_SECRET are required")
+		logger.Info("Google OAuth disabled; credentials are not configured")
 	}
 	mapping, err := os.ReadFile("rooms.json")
 	if err != nil {
@@ -76,7 +95,7 @@ func run() error {
 		return err
 	}
 	router := httpadapter.NewRouter(httpadapter.RouterConfig{
-		Auth:              httpauth.New(authService, logger, strings.HasPrefix(c.GoogleRedirectURL, "https://"), c.AuthCookieSameSite),
+		Auth:              authHandler,
 		GoogleAuth:        googleAuth,
 		Health:            healthHandler,
 		SheetBookings:     httpsheetbooking.New(sheetbooking.New(sheetReader, rooms), logger),

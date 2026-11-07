@@ -29,6 +29,7 @@ type Config struct {
 	SheetRange          string
 	BootstrapAdminEmail string
 	OSStudentIDs        string
+	AuthEnabled         bool
 	DBMaxConns          int32
 	DBMinConns          int32
 	DBConnectTimeout    time.Duration
@@ -57,48 +58,52 @@ func Load() (Config, error) {
 	default:
 		return c, fmt.Errorf("LOG_LEVEL must be debug, info, warn, or error")
 	}
-	if strings.TrimSpace(c.DatabaseURL) == "" {
-		return c, fmt.Errorf("DATABASE_URL is required")
-	}
+	c.DatabaseURL = strings.TrimSpace(c.DatabaseURL)
 	c.JWTSecret = os.Getenv("JWT_SECRET")
-	if len(strings.TrimSpace(c.JWTSecret)) < 32 {
+	if c.JWTSecret != "" && len(strings.TrimSpace(c.JWTSecret)) < 32 {
 		return c, fmt.Errorf("JWT_SECRET must contain at least 32 non-padding bytes")
 	}
 	c.GoogleClientID = strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID"))
 	c.GoogleClientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
+	if (c.GoogleClientID == "") != (c.GoogleClientSecret == "") {
+		return c, fmt.Errorf("Google OAuth needs both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET")
+	}
+	if c.GoogleClientID != "" && (c.DatabaseURL == "" || c.JWTSecret == "") {
+		return c, fmt.Errorf("Google OAuth requires DATABASE_URL and JWT_SECRET")
+	}
+	c.AuthEnabled = c.DatabaseURL != "" && c.JWTSecret != ""
 	c.GoogleRedirectURL = value("GOOGLE_REDIRECT_URL", "http://localhost:8080/auth/google/callback")
 	c.FrontendURL = value("FRONTEND_URL", "http://localhost:3000")
 	cookieMode := value("AUTH_COOKIE_SAME_SITE", "lax")
 	if c.AppEnv == "production" {
 		cookieMode = value("AUTH_COOKIE_SAME_SITE", "none")
 	}
-	switch strings.ToLower(cookieMode) {
-	case "lax":
-		c.AuthCookieSameSite = http.SameSiteLaxMode
-	case "none":
-		c.AuthCookieSameSite = http.SameSiteNoneMode
-	default:
-		return c, fmt.Errorf("AUTH_COOKIE_SAME_SITE must be lax or none")
-	}
 	c.GoogleAllowedDomain = value("GOOGLE_ALLOWED_DOMAIN", "student.chula.ac.th")
 	c.GoogleAllowedSuffix = value("GOOGLE_ALLOWED_SUFFIX", "21")
-	if strings.TrimSpace(c.GoogleAllowedDomain) == "" || strings.ContainsAny(c.GoogleAllowedDomain, "@/ \t\r\n") || c.GoogleAllowedSuffix == "" {
-		return c, fmt.Errorf("GOOGLE_ALLOWED_DOMAIN and GOOGLE_ALLOWED_SUFFIX must be valid nonempty values")
+	if c.AuthEnabled {
+		switch strings.ToLower(cookieMode) {
+		case "lax":
+			c.AuthCookieSameSite = http.SameSiteLaxMode
+		case "none":
+			c.AuthCookieSameSite = http.SameSiteNoneMode
+		default:
+			return c, fmt.Errorf("AUTH_COOKIE_SAME_SITE must be lax or none")
+		}
+		if strings.TrimSpace(c.GoogleAllowedDomain) == "" || strings.ContainsAny(c.GoogleAllowedDomain, "@/ \t\r\n") || c.GoogleAllowedSuffix == "" {
+			return c, fmt.Errorf("GOOGLE_ALLOWED_DOMAIN and GOOGLE_ALLOWED_SUFFIX must be valid nonempty values")
+		}
+		frontend, err := url.Parse(c.FrontendURL)
+		if err != nil || frontend.Host == "" || frontend.User != nil || frontend.RawQuery != "" || frontend.Fragment != "" || frontend.Path != "" && frontend.Path != "/" || frontend.Scheme != "https" && (c.AppEnv == "production" || frontend.Scheme != "http" || frontend.Hostname() != "localhost" && frontend.Hostname() != "127.0.0.1") {
+			return c, fmt.Errorf("FRONTEND_URL must be a frontend origin (HTTPS in production)")
+		}
+		c.FrontendURL = frontend.Scheme + "://" + frontend.Host
 	}
-	if c.AppEnv == "production" && (c.GoogleClientID == "" || c.GoogleClientSecret == "") {
-		return c, fmt.Errorf("Google OAuth client ID and secret are required in production")
-	}
-	if c.GoogleClientID != "" || c.GoogleClientSecret != "" {
+	if c.GoogleClientID != "" {
 		redirect, err := url.Parse(c.GoogleRedirectURL)
-		if c.GoogleClientID == "" || c.GoogleClientSecret == "" || err != nil || redirect.Host == "" || redirect.Path != "/auth/google/callback" || redirect.RawQuery != "" || redirect.Fragment != "" || redirect.User != nil || redirect.Scheme != "http" && redirect.Scheme != "https" || redirect.Scheme == "http" && (c.AppEnv == "production" || redirect.Hostname() != "localhost" && redirect.Hostname() != "127.0.0.1") || c.AuthCookieSameSite == http.SameSiteNoneMode && redirect.Scheme != "https" {
+		if err != nil || redirect.Host == "" || redirect.Path != "/auth/google/callback" || redirect.RawQuery != "" || redirect.Fragment != "" || redirect.User != nil || redirect.Scheme != "http" && redirect.Scheme != "https" || redirect.Scheme == "http" && (c.AppEnv == "production" || redirect.Hostname() != "localhost" && redirect.Hostname() != "127.0.0.1") || c.AuthCookieSameSite == http.SameSiteNoneMode && redirect.Scheme != "https" {
 			return c, fmt.Errorf("Google OAuth needs a client ID, client secret, and valid callback URL")
 		}
 	}
-	frontend, err := url.Parse(c.FrontendURL)
-	if err != nil || frontend.Host == "" || frontend.User != nil || frontend.RawQuery != "" || frontend.Fragment != "" || frontend.Path != "" && frontend.Path != "/" || frontend.Scheme != "https" && (c.AppEnv == "production" || frontend.Scheme != "http" || frontend.Hostname() != "localhost" && frontend.Hostname() != "127.0.0.1") {
-		return c, fmt.Errorf("FRONTEND_URL must be a frontend origin (HTTPS in production)")
-	}
-	c.FrontendURL = frontend.Scheme + "://" + frontend.Host
 	c.SpreadsheetID = os.Getenv("GOOGLE_SPREADSHEET_ID")
 	if strings.TrimSpace(c.SpreadsheetID) == "" {
 		return c, fmt.Errorf("GOOGLE_SPREADSHEET_ID is required")
@@ -113,7 +118,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return c, err
 	}
-	return c, loadDatabaseSettings(&c)
+	if c.DatabaseURL != "" {
+		return c, loadDatabaseSettings(&c)
+	}
+	return c, nil
 }
 
 // LoadBootstrapAdmin reads only the settings required by the one-off admin command.

@@ -36,15 +36,19 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, "ok")
 }
 
-// Readyz reports whether PostgreSQL is reachable.
+// Readyz reports readiness, checking PostgreSQL only when it is configured.
 // @Summary Check readiness
-// @Description Pings PostgreSQL with a two-second timeout.
+// @Description Returns ready when PostgreSQL is not configured; otherwise pings PostgreSQL with a two-second timeout.
 // @Tags health
 // @Produce json
 // @Success 200 {object} probeResponse "status: ready"
 // @Failure 503 {object} probeResponse "status: unavailable"
 // @Router /readyz [get]
 func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
+	if h.pinger == nil {
+		respond(w, http.StatusOK, "ready")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if err := h.pinger.Ping(ctx); err != nil {

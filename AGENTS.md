@@ -4,7 +4,7 @@
 
 The Chula Room Booking API is a Go modular monolith. Keep it simple, maintainable, and easy to change. Use pragmatic Hexagonal Architecture / Ports & Adapters to separate responsibilities without unnecessary interfaces, duplicate models, mapping layers, or framework abstractions.
 
-Currently implemented: environment configuration, structured logging, PostgreSQL connectivity, health/readiness endpoints, development Swagger, CI checks, the core schema, Google OAuth sign-in with PostgreSQL users and HttpOnly JWT auth cookies, explicit ADMIN and OS bootstrap commands, and OS/admin-only cached Google Sheets booking list and monthly calendar endpoints. Auth/user and sheet-booking domain packages, the PostgreSQL user repository, and the Google Sheets reader with a 60-second cache are implemented; other domain packages remain placeholders. Native booking APIs, sessions, and equipment features are not implemented. Treat the future rules below as design requirements, not existing functionality.
+Currently implemented: environment configuration, structured logging, optional PostgreSQL connectivity, health/readiness endpoints, development Swagger, CI checks, the core schema, optional Google OAuth sign-in with PostgreSQL users and HttpOnly JWT auth cookies, explicit ADMIN and OS bootstrap commands, and public cached Google Sheets booking endpoints. Auth/user and sheet-booking domain packages, the PostgreSQL user repository, and the Google Sheets reader with a 60-second cache are implemented; other domain packages remain placeholders. Native booking APIs, sessions, and equipment features are not implemented. Treat the future rules below as design requirements, not existing functionality.
 
 ## Project Structure & Module Organization
 
@@ -59,11 +59,13 @@ Use the Go version declared in `go.mod` (currently 1.26.8), Make, a POSIX shell,
 
 ```sh
 cp .env.example .env
-make db-up
 make tools
-make migrate-up
 make run
 ```
+
+The public Sheets API runs without PostgreSQL. Set `DATABASE_URL` and
+`JWT_SECRET` and run `make db-up` plus `make migrate-up` to enable auth; add both
+Google OAuth credentials to enable Google sign-in.
 
 | Command | Purpose |
 | --- | --- |
@@ -104,7 +106,7 @@ curl -i http://localhost:8080/readyz
 curl -i http://localhost:8080/swagger/doc.json
 ```
 
-With the API already running, stopping PostgreSQL should leave `/healthz` at 200 and change `/readyz` to 503. Restart it with `make db-up` afterward.
+With the API running without `DATABASE_URL`, both `/healthz` and `/readyz` return 200. When the API is running with a configured database, stopping PostgreSQL should leave `/healthz` at 200 and change `/readyz` to 503. Restart it with `make db-up` afterward.
 
 ## Database & Migration Rules
 
@@ -126,7 +128,7 @@ Important OS actions should append audit history: approval, rejection, cancellat
 
 ## HTTP, Swagger & Health Contracts
 
-Business routes belong under `/api/v1`. Authentication provides protected GET `/api/v1/auth/me` and POST `/api/v1/auth/logout`; Google OAuth uses `/auth/google/login` and `/auth/google/callback` in all environments, while `/auth/google/url` is development-only. The OS/admin-only GET `/api/v1/admin/sheet-bookings` returns filtered, paginated legacy rows from Google Sheets, and `/api/v1/admin/sheet-bookings/calendar` returns monthly daily counts; native room and booking routes remain unimplemented. The `/api/v1/admin` prefix provides no authorization: explicitly verify the authenticated user's current OS role through the shared role middleware; that middleware always permits ADMIN as the super-role.
+Business routes belong under `/api/v1`. When configured, authentication provides protected GET `/api/v1/auth/me` and POST `/api/v1/auth/logout`; Google OAuth uses `/auth/google/login` and `/auth/google/callback` in all environments, while `/auth/google/url` is development-only. The public GET `/api/v1/admin/sheet-bookings` returns filtered, paginated legacy rows from Google Sheets, and `/api/v1/admin/sheet-bookings/calendar` returns monthly daily counts; native room and booking routes remain unimplemented. The `/api/v1/admin` prefix provides no authorization: future protected routes must explicitly verify the authenticated user's current OS role through the shared role middleware; that middleware always permits ADMIN as the super-role.
 
 Whenever endpoint behavior changes, update Swaggo comments, run `make swagger`, and commit `docs/docs.go`, `docs/swagger.json`, and `docs/swagger.yaml`. Comments document the contract; business logic stays in code. CI detects stale generation, while tests/review must verify annotations match actual behavior.
 
@@ -135,9 +137,9 @@ Swagger uses base path `/` for the root-level probes and OAuth paths. Future bus
 | Endpoint | Meaning | Response |
 | --- | --- | --- |
 | `GET /healthz` | Process liveness; no database query. | 200, `{"status":"ok"}` |
-| `GET /readyz` | PostgreSQL readiness with a two-second ping timeout. | 200, `{"status":"ready"}`; otherwise 503, `{"status":"unavailable"}` |
+| `GET /readyz` | Ready when PostgreSQL is not configured; otherwise checks it with a two-second ping timeout. | 200, `{"status":"ready"}`; otherwise 503, `{"status":"unavailable"}` |
 
-Both probes use `Cache-Control: no-store`. Startup requires a successful PostgreSQL ping. Preserve graceful shutdown: drain HTTP requests within `SHUTDOWN_TIMEOUT`, then close the pool.
+Both probes use `Cache-Control: no-store`. When `DATABASE_URL` is configured, startup requires a successful PostgreSQL ping. Without it, the public Sheets API starts without auth routes and readiness does not query PostgreSQL. Preserve graceful shutdown: drain HTTP requests within `SHUTDOWN_TIMEOUT`, then close the pool if configured.
 
 ## Authentication, Middleware & Logging
 
@@ -156,11 +158,11 @@ Configuration comes from environment variables. `.env.example` documents local v
 | `APP_ENV` | `development` or `production`; default `development`. |
 | `HTTP_ADDR` | Host:port; default `:8080`. |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error`; default `info`. |
-| `DATABASE_URL` | Required PostgreSQL connection string. |
-| `JWT_SECRET` | Required signing secret; at least 32 bytes excluding surrounding whitespace. |
+| `DATABASE_URL` | Optional for the public Sheets API; when configured, PostgreSQL must be reachable at startup. Required by bootstrap and migration commands. |
+| `JWT_SECRET` | Optional while auth is disabled; when configured, at least 32 bytes excluding surrounding whitespace. |
 | `BOOTSTRAP_ADMIN_EMAIL` | Google-eligible Chula email required by `make bootstrap-admin` only when no ADMIN exists. |
 | `OS_STUDENT_IDS` | Optional comma-separated numeric IDs ending in `21` for `make bootstrap-os`; empty means no OS rows. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Required in production; both enable OAuth routes locally. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional; set both with PostgreSQL and `JWT_SECRET` to enable Google OAuth. |
 | `GOOGLE_REDIRECT_URL` | Google web-client callback URI; defaults to `http://localhost:8080/auth/google/callback`. |
 | `FRONTEND_URL` | Frontend origin for login redirects and credentialed CORS; defaults to `http://localhost:3000` locally and must be HTTPS in production. |
 | `AUTH_COOKIE_SAME_SITE` | `none` for cross-site HTTPS (production default) or `lax` for same-site deployment (development default). |

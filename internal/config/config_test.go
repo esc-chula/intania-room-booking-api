@@ -27,15 +27,14 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.AppEnv != "development" || c.HTTPAddr != ":8080" || c.FrontendURL != "http://localhost:3000" || c.AuthCookieSameSite != http.SameSiteLaxMode || c.BootstrapAdminEmail != "" || c.OSStudentIDs != "" || c.GoogleAllowedDomain != "student.chula.ac.th" || c.GoogleAllowedSuffix != "21" || c.DBMaxConns != 10 || c.DBMinConns != 0 || c.DBConnectTimeout != 5*time.Second || c.ShutdownTimeout != 10*time.Second {
+	if c.AppEnv != "development" || c.HTTPAddr != ":8080" || c.FrontendURL != "http://localhost:3000" || c.AuthCookieSameSite != http.SameSiteLaxMode || !c.AuthEnabled || c.BootstrapAdminEmail != "" || c.OSStudentIDs != "" || c.GoogleAllowedDomain != "student.chula.ac.th" || c.GoogleAllowedSuffix != "21" || c.DBMaxConns != 10 || c.DBMinConns != 0 || c.DBConnectTimeout != 5*time.Second || c.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 }
 
 func TestRejectInvalidConfiguration(t *testing.T) {
 	for _, tc := range []struct{ key, value string }{
-		{"DATABASE_URL", ""}, {"DATABASE_URL", "  "},
-		{"JWT_SECRET", ""}, {"JWT_SECRET", "short"}, {"JWT_SECRET", "                                "},
+		{"JWT_SECRET", "short"}, {"JWT_SECRET", "                                "},
 		{"GOOGLE_SPREADSHEET_ID", ""}, {"GOOGLE_SPREADSHEET_ID", "  "},
 		{"GOOGLE_SHEET_RANGE", ""}, {"GOOGLE_SHEET_RANGE", "  "},
 		{"GOOGLE_ALLOWED_DOMAIN", ""}, {"GOOGLE_ALLOWED_SUFFIX", ""},
@@ -57,7 +56,7 @@ func TestRejectInvalidConfiguration(t *testing.T) {
 			}
 		})
 	}
-	for _, key := range []string{"DATABASE_URL", "GOOGLE_SPREADSHEET_ID", "GOOGLE_SHEET_RANGE"} {
+	for _, key := range []string{"GOOGLE_SPREADSHEET_ID", "GOOGLE_SHEET_RANGE"} {
 		t.Run("missing "+key, func(t *testing.T) {
 			defaults(t)
 			if err := os.Unsetenv(key); err != nil {
@@ -96,11 +95,34 @@ func TestOverrides(t *testing.T) {
 	}
 }
 
-func TestProductionOAuthRequired(t *testing.T) {
+func TestProductionAuthAndOAuthCanBeDisabled(t *testing.T) {
 	defaults(t)
 	t.Setenv("APP_ENV", "production")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("JWT_SECRET", "")
+	c, err := Load()
+	if err != nil || c.AuthEnabled || c.GoogleClientID != "" {
+		t.Fatalf("production without optional auth dependencies: %+v %v", c, err)
+	}
+}
+
+func TestDatabaseAndJWTCanBeDisabledButSheetsRemainRequired(t *testing.T) {
+	defaults(t)
+	t.Setenv("DATABASE_URL", " ")
+	t.Setenv("JWT_SECRET", "")
+	c, err := Load()
+	if err != nil || c.DatabaseURL != "" || c.AuthEnabled {
+		t.Fatalf("optional database/auth config: %+v %v", c, err)
+	}
+	defaults(t)
+	t.Setenv("JWT_SECRET", "")
+	c, err = Load()
+	if err != nil || c.AuthEnabled || c.JWTSecret != "" {
+		t.Fatalf("database without auth secret should disable auth: %+v %v", c, err)
+	}
+	t.Setenv("GOOGLE_SHEET_RANGE", "")
 	if _, err := Load(); err == nil {
-		t.Fatal("production without Google credentials accepted")
+		t.Fatal("missing sheet range accepted")
 	}
 }
 
@@ -149,6 +171,20 @@ func TestGoogleConfigRequiresCompleteCredentials(t *testing.T) {
 			t.Setenv(tc.key, tc.value)
 			if _, err := Load(); err == nil {
 				t.Fatal("incomplete Google configuration accepted")
+			}
+		})
+	}
+}
+
+func TestGoogleOAuthRequiresDatabaseAndJWT(t *testing.T) {
+	for _, key := range []string{"DATABASE_URL", "JWT_SECRET"} {
+		t.Run(key, func(t *testing.T) {
+			defaults(t)
+			t.Setenv("GOOGLE_CLIENT_ID", "client")
+			t.Setenv("GOOGLE_CLIENT_SECRET", "secret")
+			t.Setenv(key, "")
+			if _, err := Load(); err == nil {
+				t.Fatalf("OAuth accepted without %s", key)
 			}
 		})
 	}

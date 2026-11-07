@@ -17,14 +17,14 @@ const docTemplate = `{
     "paths": {
         "/api/v1/admin/sheet-bookings": {
             "get": {
-                "description": "Requires OS or ADMIN. Reads a 60-second cached Sheet snapshot.",
+                "description": "Reads a 60-second cached Sheet snapshot without authentication.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sheet-bookings"
                 ],
-                "summary": "List OS spreadsheet bookings",
+                "summary": "List public spreadsheet bookings",
                 "parameters": [
                     {
                         "type": "integer",
@@ -76,18 +76,6 @@ const docTemplate = `{
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
                     },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/sheetbooking.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/sheetbooking.errorResponse"
-                        }
-                    },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
@@ -99,14 +87,14 @@ const docTemplate = `{
         },
         "/api/v1/admin/sheet-bookings/calendar": {
             "get": {
-                "description": "Requires OS or ADMIN. Conflicted counts active bookings overlapping the same room and daily time window.",
+                "description": "Conflicted counts active bookings overlapping the same room and daily time window. No authentication is required.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sheet-bookings"
                 ],
-                "summary": "Monthly OS spreadsheet booking calendar",
+                "summary": "Public monthly spreadsheet booking calendar",
                 "parameters": [
                     {
                         "type": "integer",
@@ -142,18 +130,6 @@ const docTemplate = `{
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
                     },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/sheetbooking.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/sheetbooking.errorResponse"
-                        }
-                    },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
@@ -165,14 +141,14 @@ const docTemplate = `{
         },
         "/api/v1/admin/sheet-bookings/weekly": {
             "get": {
-                "description": "Requires OS or ADMIN. Uses the shared 60-second cached Sheet snapshot. Dates are inclusive and use Bangkok time.",
+                "description": "Uses the 60-second cached Sheet snapshot without authentication. Dates are inclusive and use Bangkok time.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sheet-bookings"
                 ],
-                "summary": "Weekly OS spreadsheet room schedule",
+                "summary": "Public weekly spreadsheet room schedule",
                 "parameters": [
                     {
                         "type": "string",
@@ -202,18 +178,6 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/sheetbooking.errorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/sheetbooking.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
@@ -358,7 +322,7 @@ const docTemplate = `{
         },
         "/readyz": {
             "get": {
-                "description": "Pings PostgreSQL with a two-second timeout.",
+                "description": "Returns ready when PostgreSQL is not configured; otherwise pings PostgreSQL with a two-second timeout.",
                 "produces": [
                     "application/json"
                 ],
@@ -601,7 +565,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "Chula Room Booking API",
-	Description:      "Google OAuth sign-in sets a one-hour HttpOnly authentication cookie. OS-only live spreadsheet bookings are available to authenticated users.",
+	Description:      "Live spreadsheet bookings are publicly available. Optional Google OAuth sign-in sets a one-hour HttpOnly authentication cookie.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",
