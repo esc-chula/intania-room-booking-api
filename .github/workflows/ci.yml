@@ -18,6 +18,7 @@ jobs:
       - run: make tools
       - run: make check
       - run: go build ./...
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
   publish:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'

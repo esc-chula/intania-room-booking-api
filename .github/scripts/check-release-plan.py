@@ -19,6 +19,10 @@ for resource in plan.get("resource_changes", []):
     if actions != ["update"]:
         sys.exit(f"Release would replace or delete Cloud Run: {actions}")
     before, after = change["before"], change["after"]
+    # Cloud Console records its client name; Terraform clears it when applying.
+    if before.get("client") == "cloud-console" and after.get("client") is None:
+        before.pop("client", None)
+        after.pop("client", None)
     for value in (before, after):
         value["template"][0]["containers"][0].pop("image", None)
     if before != after:
