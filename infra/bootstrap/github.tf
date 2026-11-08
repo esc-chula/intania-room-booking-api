@@ -19,7 +19,7 @@ variable "github_owner_id" {
 variable "github_repository" {
   description = "GitHub owner/repository, used to restrict the exact workflow files."
   type        = string
-  default     = "MadManJJ/room-reservation-api"
+  default     = "esc-chula/intania-room-booking-api"
   validation {
     condition     = can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
     error_message = "github_repository must be an owner/repository name."
