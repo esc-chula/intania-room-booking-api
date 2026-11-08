@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: Full commit SHA from a successful main CI run
+        description: Commit SHA from a successful main CI run (short or full)
         required: true
         type: string
 permissions:
@@ -37,10 +37,25 @@ jobs:
       - name: Verify successful main build
         run: |
           set -eu
-          [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git merge-base --is-ancestor "$COMMIT_SHA" origin/main
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${COMMIT_SHA}&per_page=100" --jq '.workflow_runs[] | select(.conclusion == "success") | .id' > "$RUNNER_TEMP/successful-runs"
-          test -s "$RUNNER_TEMP/successful-runs" || { echo 'No successful main CI run for this SHA' >&2; exit 1; }
+          if ! [[ "$COMMIT_SHA" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+            echo '::error::Enter a commit SHA of at least 7 hexadecimal characters, not a branch name or image tag.'
+            exit 1
+          fi
+          if ! resolved_sha="$(git rev-parse --verify "${COMMIT_SHA}^{commit}" 2>/dev/null)"; then
+            echo '::error::The commit SHA was not found or is ambiguous. Use the full SHA from a successful CI run.'
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$resolved_sha" origin/main; then
+            echo '::error::The selected commit is not on main.'
+            exit 1
+          fi
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${resolved_sha}&per_page=100" --jq '.workflow_runs[] | select(.conclusion == "success") | .id' > "$RUNNER_TEMP/successful-runs"
+          if ! test -s "$RUNNER_TEMP/successful-runs"; then
+            echo "::error::No successful main CI run for $resolved_sha. Wait for CI to finish or select a successful commit."
+            exit 1
+          fi
+          echo "COMMIT_SHA=$resolved_sha" >> "$GITHUB_ENV"
+          echo "Releasing commit $resolved_sha"
       - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
@@ -56,7 +71,10 @@ jobs:
           : "${PROJECT_ID:?}" "${REGION:?}" "${REPOSITORY:?}" "${STATE_BUCKET:?}" "${STATE_PREFIX:?}" "${TF_VAR_spreadsheet_id:?}" "${TF_VAR_sheet_range:?}"
           image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/api"
           digest="$(gcloud artifacts docker images describe "${image}:${COMMIT_SHA}" --project "$PROJECT_ID" --format='value(image_summary.digest)')"
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not resolve a valid image digest for commit $COMMIT_SHA. Confirm CI pushed the image."
+            exit 1
+          fi
           export TF_VAR_image_url="${image}@${digest}"
           terraform -chdir=infra init -input=false -backend-config="bucket=$STATE_BUCKET" -backend-config="prefix=$STATE_PREFIX"
           terraform -chdir=infra plan -input=false -out="$RUNNER_TEMP/release.tfplan"
