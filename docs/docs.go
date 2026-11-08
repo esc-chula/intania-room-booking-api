@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/admin/sheet-bookings": {
             "get": {
-                "description": "Reads a 60-second cached Sheet snapshot without authentication.",
+                "description": "Reads a 60-second cached Sheet snapshot without authentication. Shares a per-IP limit of 600 requests per minute, with a burst of 600, across the three Sheet endpoints.",
                 "produces": [
                     "application/json"
                 ],
@@ -76,6 +76,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
                     },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
@@ -87,7 +93,7 @@ const docTemplate = `{
         },
         "/api/v1/admin/sheet-bookings/calendar": {
             "get": {
-                "description": "Conflicted counts active bookings overlapping the same room and daily time window. No authentication is required.",
+                "description": "Conflicted counts active bookings overlapping the same room and daily time window. No authentication is required. Shares the per-IP Sheet endpoint limit.",
                 "produces": [
                     "application/json"
                 ],
@@ -130,6 +136,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
                     },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
@@ -141,7 +153,7 @@ const docTemplate = `{
         },
         "/api/v1/admin/sheet-bookings/weekly": {
             "get": {
-                "description": "Uses the 60-second cached Sheet snapshot without authentication. Dates are inclusive and use Bangkok time.",
+                "description": "Uses the 60-second cached Sheet snapshot without authentication. Dates are inclusive and use Bangkok time. Shares the per-IP Sheet endpoint limit.",
                 "produces": [
                     "application/json"
                 ],
@@ -178,6 +190,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
                         "schema": {
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }

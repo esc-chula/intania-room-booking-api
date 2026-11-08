@@ -27,7 +27,7 @@ func New(service domainbooking.Service, logger *slog.Logger) *Handler {
 
 // List returns paginated booking rows from the OS spreadsheet.
 // @Summary List public spreadsheet bookings
-// @Description Reads a 60-second cached Sheet snapshot without authentication.
+// @Description Reads a 60-second cached Sheet snapshot without authentication. Shares a per-IP limit of 600 requests per minute, with a burst of 600, across the three Sheet endpoints.
 // @Tags sheet-bookings
 // @Produce json
 // @Param year query int false "Calendar year; requires month"
@@ -38,6 +38,7 @@ func New(service domainbooking.Service, logger *slog.Logger) *Handler {
 // @Param page_size query int false "Page size, default 20, maximum 100"
 // @Success 200 {object} domainbooking.Page
 // @Failure 400 {object} errorResponse
+// @Failure 429 {object} errorResponse
 // @Failure 502 {object} errorResponse
 // @Router /api/v1/admin/sheet-bookings [get]
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +58,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 // Calendar returns daily booking status counts for a month.
 // @Summary Public monthly spreadsheet booking calendar
-// @Description Conflicted counts active bookings overlapping the same room and daily time window. No authentication is required.
+// @Description Conflicted counts active bookings overlapping the same room and daily time window. No authentication is required. Shares the per-IP Sheet endpoint limit.
 // @Tags sheet-bookings
 // @Produce json
 // @Param year query int true "Calendar year"
@@ -65,6 +66,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 // @Param building query string false "ENG building name"
 // @Success 200 {object} domainbooking.CalendarResult
 // @Failure 400 {object} errorResponse
+// @Failure 429 {object} errorResponse
 // @Failure 502 {object} errorResponse
 // @Router /api/v1/admin/sheet-bookings/calendar [get]
 func (h *Handler) Calendar(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +86,7 @@ func (h *Handler) Calendar(w http.ResponseWriter, r *http.Request) {
 
 // Weekly returns sheet bookings grouped under every catalog room in a date range.
 // @Summary Public weekly spreadsheet room schedule
-// @Description Uses the 60-second cached Sheet snapshot without authentication. Dates are inclusive and use Bangkok time.
+// @Description Uses the 60-second cached Sheet snapshot without authentication. Dates are inclusive and use Bangkok time. Shares the per-IP Sheet endpoint limit.
 // @Tags sheet-bookings
 // @Produce json
 // @Param start_date query string false "Start date YYYY-MM-DD; defaults to today in Bangkok"
@@ -92,6 +94,7 @@ func (h *Handler) Calendar(w http.ResponseWriter, r *http.Request) {
 // @Param building query string false "ENG 3, ENG 100, or ENG 4"
 // @Success 200 {object} domainbooking.WeeklyResult
 // @Failure 400 {object} errorResponse
+// @Failure 429 {object} errorResponse
 // @Failure 502 {object} errorResponse
 // @Router /api/v1/admin/sheet-bookings/weekly [get]
 func (h *Handler) Weekly(w http.ResponseWriter, r *http.Request) {

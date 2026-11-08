@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	_ "github.com/MadManJJ/room-reservation-api/docs"
@@ -113,6 +115,75 @@ func TestRoutesAndSwagger(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSheetRateLimitSharedAcrossRoutes(t *testing.T) {
+	t.Setenv("K_SERVICE", "")
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	router := NewRouter(RouterConfig{
+		Health: health.New(pinger{}, logger), SheetBookings: httpsheetbooking.New(sheetService{}, logger), Logger: logger,
+	})
+	paths := []string{
+		"/api/v1/admin/sheet-bookings",
+		"/api/v1/admin/sheet-bookings/calendar?year=2026&month=11",
+		"/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02",
+	}
+	request := func(path, ip string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.RemoteAddr = ip + ":1234"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w
+	}
+	for i := 0; i < 600; i++ {
+		if got := request(paths[i%len(paths)], "203.0.113.10").Code; got != http.StatusOK {
+			t.Fatalf("request %d: got %d, want 200", i, got)
+		}
+	}
+	w := request(paths[1], "203.0.113.10")
+	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != "1" || w.Body.String() != `{"error":"rate limit exceeded"}` {
+		t.Fatalf("rate limit response: %d %s", w.Code, w.Body.String())
+	}
+	if got := request(paths[0], "203.0.113.11").Code; got != http.StatusOK {
+		t.Fatalf("second IP: got %d, want 200", got)
+	}
+	if got := request("/health", "203.0.113.10").Code; got != http.StatusOK {
+		t.Fatalf("health: got %d, want 200", got)
+	}
+}
+
+func TestSheetRateLimitAllowsCampusBurst(t *testing.T) {
+	t.Setenv("K_SERVICE", "")
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	router := NewRouter(RouterConfig{
+		Health: health.New(pinger{}, logger), SheetBookings: httpsheetbooking.New(sheetService{}, logger), Logger: logger,
+	})
+	paths := []string{
+		"/api/v1/admin/sheet-bookings",
+		"/api/v1/admin/sheet-bookings/calendar?year=2026&month=11",
+		"/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02",
+	}
+	var rejected atomic.Int64
+	var wg sync.WaitGroup
+	for range 200 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, path := range paths {
+				r := httptest.NewRequest(http.MethodGet, path, nil)
+				r.RemoteAddr = "203.0.113.10:1234" // One campus NAT IP.
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, r)
+				if w.Code != http.StatusOK {
+					rejected.Add(1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if got := rejected.Load(); got != 0 {
+		t.Fatalf("200 concurrent users across 3 routes: %d rejected", got)
 	}
 }
 

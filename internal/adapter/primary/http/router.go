@@ -45,9 +45,10 @@ func NewRouter(config RouterConfig) http.Handler {
 		})
 	}
 	if config.SheetBookings != nil {
-		r.Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
-		r.Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
-		r.Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
+		limitSheets := requestmiddleware.SheetRateLimit()
+		r.With(limitSheets).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
+		r.With(limitSheets).Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
+		r.With(limitSheets).Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
 	}
 	if config.GoogleAuth != nil {
 		r.Get("/auth/google/login", config.GoogleAuth.Login)
