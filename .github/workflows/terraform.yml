@@ -46,7 +46,7 @@ jobs:
   apply:
     needs: plan
     runs-on: ubuntu-latest
-    environment: personal-infra-apply
+    environment: infra-apply
     env:
       STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
       STATE_PREFIX: ${{ vars.TF_STATE_PREFIX }}
