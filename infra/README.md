@@ -244,3 +244,62 @@ group, but local Terraform commands can still overlap: use the same GCS state
 and never disable locking. Cloud Run remains public and Sheets data may be
 exposed as described above. Test each workflow in the personal project before
 adapting settings and separate state to the organization project.
+
+## Bootstrap quick start
+
+Run these commands from the repository root for a new GCP project.
+
+```sh
+gcloud auth login
+gcloud auth application-default login
+gcloud config set project YOUR_PROJECT_ID
+
+export PROJECT_ID="$(gcloud config get-value project)"
+export REGION=asia-southeast1
+export STATE_BUCKET="${PROJECT_ID}-terraform-state"
+test -n "$PROJECT_ID"
+gcloud projects describe "$PROJECT_ID"
+
+export TF_VAR_project_id="$PROJECT_ID"
+export TF_VAR_region="$REGION"
+export TF_VAR_state_bucket_name="$STATE_BUCKET"
+export TF_VAR_github_repository_id="$(gh api repos/MadManJJ/room-reservation-api --jq .id)"
+export TF_VAR_github_owner_id="$(gh api repos/MadManJJ/room-reservation-api --jq .owner.id)"
+```
+
+Create the remote-state bucket first. The bootstrap stack itself keeps local
+state in `infra/bootstrap/terraform.tfstate`.
+
+```sh
+terraform -chdir=infra/bootstrap init
+terraform -chdir=infra/bootstrap plan \
+  -target=google_storage_bucket.terraform_state \
+  -out=bootstrap-bucket.tfplan
+terraform -chdir=infra/bootstrap apply bootstrap-bucket.tfplan
+```
+
+Create `infra/terraform.tfvars` from the example and set the spreadsheet ID and
+range. Then create the initial registry and runtime service account locally:
+
+```sh
+cp infra/terraform.tfvars.example infra/terraform.tfvars
+terraform -chdir=infra init \
+  -backend-config="bucket=$STATE_BUCKET" \
+  -backend-config="prefix=room-booking/personal-test"
+terraform -chdir=infra plan -out=initial-infra.tfplan
+terraform -chdir=infra apply initial-infra.tfplan
+```
+
+Finish the bootstrap by creating GitHub WIF, service accounts, and IAM bindings:
+
+```sh
+terraform -chdir=infra/bootstrap plan -out=bootstrap-identities.tfplan
+terraform -chdir=infra/bootstrap apply bootstrap-identities.tfplan
+terraform -chdir=infra/bootstrap output github_wif_provider
+terraform -chdir=infra/bootstrap output github_service_accounts
+```
+
+Use those outputs for the GitHub repository variables described above. After
+this one-time setup, run **Terraform infrastructure** for main Terraform changes
+and **Release** for deploying a new image. Do not normally apply `infra/`
+locally again.
