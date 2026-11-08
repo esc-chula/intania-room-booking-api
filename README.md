@@ -1,4 +1,4 @@
-# Chula Room Booking API
+# Intania Room Booking API
 
 This API reads legacy room bookings from Google Sheets. The three endpoints below are public, read-only, and available without an API login or PostgreSQL. Despite the `/admin` path segment, they do not require an OS or ADMIN account.
 
