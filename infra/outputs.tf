@@ -6,6 +6,10 @@ output "runtime_service_account" {
   value = google_service_account.api.email
 }
 
+output "frontend_service_account" {
+  value = google_service_account.frontend.email
+}
+
 output "service_url" {
   value = try(google_cloud_run_v2_service.api[0].uri, null)
 }

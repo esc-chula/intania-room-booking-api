@@ -23,12 +23,18 @@ resource "google_service_account" "api" {
   display_name = "Room booking API runtime"
   depends_on   = [google_project_service.required]
 }
+resource "google_service_account" "frontend" {
+  account_id   = "nextjs-frontend"
+  display_name = "Next.js frontend runtime"
+  depends_on   = [google_project_service.required]
+}
 resource "google_cloud_run_v2_service" "api" {
-  count               = var.image_url == "" ? 0 : 1
-  name                = "room-booking-api"
-  location            = var.region
-  ingress             = "INGRESS_TRAFFIC_ALL"
-  deletion_protection = false
+  count                = var.image_url == "" ? 0 : 1
+  name                 = "room-booking-api"
+  location             = var.region
+  ingress              = "INGRESS_TRAFFIC_ALL"
+  invoker_iam_disabled = false
+  deletion_protection  = false
 
   scaling {
     min_instance_count = 0
@@ -67,12 +73,21 @@ resource "google_cloud_run_v2_service" "api" {
   depends_on = [google_project_service.required]
 }
 
-# These legacy booking endpoints are intentionally public for the personal test.
-resource "google_cloud_run_v2_service_iam_member" "public" {
+# Allow the org test account to invoke the private API.
+resource "google_cloud_run_v2_service_iam_member" "tester" {
   count    = var.image_url == "" ? 0 : 1
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_service.api[0].name
   role     = "roles/run.invoker"
-  member   = "allUsers"
+  member   = "user:tech@intania.org"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "frontend" {
+  count    = var.image_url == "" ? 0 : 1
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.api[0].name
+  role     = "roles/run.invoker"
+  member   = google_service_account.frontend.member
 }
