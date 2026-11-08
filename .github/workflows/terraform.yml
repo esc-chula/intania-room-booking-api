@@ -1,0 +1,68 @@
+name: Terraform infrastructure
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: terraform-personal-test
+  cancel-in-progress: false
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ vars.GCP_REGION }}
+      TF_VAR_spreadsheet_id: ${{ vars.GOOGLE_SPREADSHEET_ID }}
+      TF_VAR_sheet_range: ${{ vars.GOOGLE_SHEET_RANGE }}
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      STATE_PREFIX: ${{ vars.TF_STATE_PREFIX }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_PLAN_SA }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+          terraform_wrapper: false
+      - name: Plan while preserving the deployed image
+        run: |
+          set -eu
+          : "${TF_VAR_project_id:?}" "${TF_VAR_region:?}" "${TF_VAR_spreadsheet_id:?}" "${TF_VAR_sheet_range:?}" "${STATE_BUCKET:?}" "${STATE_PREFIX:?}"
+          terraform -chdir=infra init -input=false -backend-config="bucket=$STATE_BUCKET" -backend-config="prefix=$STATE_PREFIX"
+          terraform -chdir=infra show -json > "$RUNNER_TEMP/state.json"
+          export TF_VAR_image_url="$(jq -r '[.values.root_module.resources[]? | select(.address == "google_cloud_run_v2_service.api[0]") | .values.template[0].containers[0].image] | first // ""' "$RUNNER_TEMP/state.json")"
+          terraform -chdir=infra plan -input=false -out="$RUNNER_TEMP/infra.tfplan"
+          terraform -chdir=infra show -no-color "$RUNNER_TEMP/infra.tfplan" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ runner.temp }}/infra.tfplan
+          retention-days: 1
+          if-no-files-found: error
+  apply:
+    needs: plan
+    runs-on: ubuntu-latest
+    environment: personal-infra-apply
+    env:
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      STATE_PREFIX: ${{ vars.TF_STATE_PREFIX }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_SA }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+          terraform_wrapper: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ runner.temp }}
+      - run: terraform -chdir=infra init -input=false -backend-config="bucket=$STATE_BUCKET" -backend-config="prefix=$STATE_PREFIX"
+      - run: terraform -chdir=infra apply -input=false "$RUNNER_TEMP/infra.tfplan"

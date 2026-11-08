@@ -143,3 +143,63 @@ If the bucket is already empty, skip the `gcloud storage rm` command. After
 confirming deletion, remove local Terraform state, plans, and variable files if
 no longer needed. Never delete state before its corresponding resources have
 been destroyed or transferred to another owner.
+
+## GitHub Actions setup
+
+The three workflows use the existing personal GCS state. Before enabling them,
+confirm the registry and runtime account exist, and inventory existing GCP
+workload identity pools, service accounts and GitHub environment settings. The
+workflows do not create their own credentials or the state bucket. Protect
+`main` and changes to workflow files. Do not use service-account keys.
+
+Configure repository variables:
+
+| Variable | Personal test value |
+| --- | --- |
+| `GCP_PROJECT_ID` | `intania-room-booking-test` |
+| `GCP_REGION` | `asia-southeast1` |
+| `GCP_REGISTRY` | `room-booking` |
+| `TF_STATE_BUCKET` | The bucket created by bootstrap |
+| `TF_STATE_PREFIX` | `room-booking/personal-test` (or your actual existing prefix) |
+| `GOOGLE_SPREADSHEET_ID` | Your test spreadsheet ID |
+| `GOOGLE_SHEET_RANGE` | `จองห้อง!A9:AM` |
+| `GCP_WIF_PROVIDER` | Full workload identity provider resource name |
+| `GCP_PUBLISH_SA` | Publisher service account email |
+| `GCP_TERRAFORM_PLAN_SA` | Terraform plan service account email |
+| `GCP_TERRAFORM_SA` | Terraform apply/release service account email |
+
+Set up GitHub OIDC federation constrained to the numeric repository and owner
+IDs, `refs/heads/main`, and the relevant workflow/environment claims. The
+publisher needs Artifact Registry Writer on this repository only. The plan
+identity needs resource read permissions and state-bucket access (including
+lock object writes); do not grant it resource modification permissions. The
+apply identity needs the permissions to manage the Terraform resources, act as
+the runtime identity, read the registry and access state. Restrict its
+impersonation to `personal-infra-apply` and `personal-release` environments,
+not to all main-branch workflow tokens. Grant only the needed roles after
+inventorying existing IAM. Plan artifacts and Terraform state can contain
+sensitive data: restrict repository and artifact access and use one-day artifact
+retention. Do not put credentials in Terraform variables or GitHub variables.
+
+Create GitHub environments `personal-infra-apply` and `personal-release`,
+restrict them to `main`, and configure required reviewers for the infrastructure
+apply environment. Confirm your GitHub repository plan supports required
+reviewers; do not run the infrastructure workflow without that protection.
+Configure the release environment according to the team's approval policy.
+
+CI runs checks on PRs and main pushes; only successful main pushes publish an
+image tagged by commit SHA. Start **Release** on `main` with the full SHA of a
+successful push to deploy its registry digest. Release refuses unrelated
+Terraform changes; apply those using the infrastructure workflow first. The
+first release creates Cloud Run. The release checks `/readyz` after applying;
+a readiness failure is reported but does not automatically roll back. To roll
+back, run Release with a previous successful SHA whose image is still present.
+
+Start **Terraform infrastructure** on `main`, inspect its plan in the job
+summary, then approve the protected apply job. It preserves the image in state,
+including an empty image before the first release. A stale saved plan fails; run
+the workflow again and review the new plan. These workflows share a concurrency
+group, but local Terraform commands can still overlap: use the same GCS state
+and never disable locking. Cloud Run remains public and Sheets data may be
+exposed as described above. Test each workflow in the personal project before
+adapting settings and separate state to the organization project.
