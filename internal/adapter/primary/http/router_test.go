@@ -30,9 +30,11 @@ func (sheetService) ValidBuilding(string) bool { return true }
 func (sheetService) List(context.Context, domainbooking.Query) (domainbooking.Page, error) {
 	return domainbooking.Page{Items: []domainbooking.Booking{}}, nil
 }
+
 func (sheetService) Calendar(context.Context, int, int, string) (domainbooking.CalendarResult, error) {
 	return domainbooking.CalendarResult{Days: []domainbooking.Day{}}, nil
 }
+
 func (sheetService) Weekly(context.Context, string, string, string) (domainbooking.WeeklyResult, error) {
 	return domainbooking.WeeklyResult{Rooms: []domainbooking.WeeklyRoom{}}, nil
 }
@@ -42,12 +44,15 @@ type authRepository struct{ current user.User }
 func (r *authRepository) ResolveGoogleUser(context.Context, string, string, string, string) (user.User, error) {
 	return r.current, nil
 }
+
 func (r *authRepository) CreateAdmin(context.Context, string) (user.User, error) {
 	return user.User{}, nil
 }
+
 func (r *authRepository) FindAdmin(context.Context) (user.User, error) {
 	return user.User{}, auth.ErrNotFound
 }
+
 func (r *authRepository) FindUserByID(context.Context, string) (user.User, error) {
 	return r.current, nil
 }
@@ -58,7 +63,14 @@ func TestRoutesAndSwagger(t *testing.T) {
 	for _, env := range []string{"development", "production"} {
 		t.Run(env, func(t *testing.T) {
 			router := NewRouter(RouterConfig{Health: health.New(pinger{}, logger), SheetBookings: sheets, Logger: logger, AppEnv: env})
-			for _, path := range []string{"/healthz", "/readyz", "/swagger/doc.json", "/swagger/index.html", "/api/v1/auth/me", "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/admin/sheet-bookings", "/api/v1/admin/sheet-bookings/calendar?year=2026&month=11", "/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02", "/auth/google/login", "/auth/google/callback"} {
+			for _, oldPath := range []string{"/healthz", "/readyz"} {
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, oldPath, nil))
+				if w.Code != http.StatusNotFound {
+					t.Errorf("GET %s = %d, want 404", oldPath, w.Code)
+				}
+			}
+			for _, path := range []string{"/health", "/ready", "/swagger/doc.json", "/swagger/index.html", "/api/v1/auth/me", "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/admin/sheet-bookings", "/api/v1/admin/sheet-bookings/calendar?year=2026&month=11", "/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02", "/auth/google/login", "/auth/google/callback"} {
 				w := httptest.NewRecorder()
 				router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
 				want := http.StatusOK
@@ -85,7 +97,7 @@ func TestRoutesAndSwagger(t *testing.T) {
 					if spec.BasePath != "/" {
 						t.Fatalf("base path: %q", spec.BasePath)
 					}
-					for _, documented := range []string{"/healthz", "/readyz", "/api/v1/auth/me", "/api/v1/admin/sheet-bookings", "/api/v1/admin/sheet-bookings/calendar", "/api/v1/admin/sheet-bookings/weekly", "/auth/google/url", "/auth/google/login", "/auth/google/callback"} {
+					for _, documented := range []string{"/health", "/ready", "/api/v1/auth/me", "/api/v1/admin/sheet-bookings", "/api/v1/admin/sheet-bookings/calendar", "/api/v1/admin/sheet-bookings/weekly", "/auth/google/url", "/auth/google/login", "/auth/google/callback"} {
 						if spec.Paths[documented]["get"] == nil {
 							t.Fatalf("missing GET %s documentation", documented)
 						}

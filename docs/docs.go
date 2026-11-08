@@ -300,7 +300,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/healthz": {
+        "/health": {
             "get": {
                 "description": "Returns ok while the process is running; does not query PostgreSQL.",
                 "produces": [
@@ -320,7 +320,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/readyz": {
+        "/ready": {
             "get": {
                 "description": "Returns ready when PostgreSQL is not configured; otherwise pings PostgreSQL with a two-second timeout.",
                 "produces": [

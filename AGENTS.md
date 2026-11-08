@@ -101,12 +101,12 @@ Use standard `testing` and `net/http/httptest`; no heavy test framework is requi
 No numeric coverage threshold is configured. Run relevant focused tests while developing and `make check` before review. Smoke tests supplement automated tests:
 
 ```sh
-curl -i http://localhost:8080/healthz
-curl -i http://localhost:8080/readyz
+curl -i http://localhost:8080/health
+curl -i http://localhost:8080/ready
 curl -i http://localhost:8080/swagger/doc.json
 ```
 
-With the API running without `DATABASE_URL`, both `/healthz` and `/readyz` return 200. When the API is running with a configured database, stopping PostgreSQL should leave `/healthz` at 200 and change `/readyz` to 503. Restart it with `make db-up` afterward.
+With the API running without `DATABASE_URL`, both `/health` and `/ready` return 200. When the API is running with a configured database, stopping PostgreSQL should leave `/health` at 200 and change `/ready` to 503. Restart it with `make db-up` afterward.
 
 ## Database & Migration Rules
 
@@ -136,8 +136,8 @@ Swagger uses base path `/` for the root-level probes and OAuth paths. Future bus
 
 | Endpoint | Meaning | Response |
 | --- | --- | --- |
-| `GET /healthz` | Process liveness; no database query. | 200, `{"status":"ok"}` |
-| `GET /readyz` | Ready when PostgreSQL is not configured; otherwise checks it with a two-second ping timeout. | 200, `{"status":"ready"}`; otherwise 503, `{"status":"unavailable"}` |
+| `GET /health` | Process liveness; no database query. | 200, `{"status":"ok"}` |
+| `GET /ready` | Ready when PostgreSQL is not configured; otherwise checks it with a two-second ping timeout. | 200, `{"status":"ready"}`; otherwise 503, `{"status":"unavailable"}` |
 
 Both probes use `Cache-Control: no-store`. When `DATABASE_URL` is configured, startup requires a successful PostgreSQL ping. Without it, the public Sheets API starts without auth routes and readiness does not query PostgreSQL. Preserve graceful shutdown: drain HTTP requests within `SHUTDOWN_TIMEOUT`, then close the pool if configured.
 

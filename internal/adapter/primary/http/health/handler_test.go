@@ -45,9 +45,9 @@ func TestProbes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &fakePinger{ping: tc.ping}
 			h := New(p, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-			path := "/healthz"
+			path := "/health"
 			if tc.ready {
-				path = "/readyz"
+				path = "/ready"
 			}
 			r := httptest.NewRequest(http.MethodGet, path, nil)
 			if tc.name == "readiness timeout" {
@@ -87,7 +87,7 @@ func TestProbes(t *testing.T) {
 func TestReadinessWithoutDatabase(t *testing.T) {
 	h := New(nil, slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	w := httptest.NewRecorder()
-	h.Readyz(w, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	h.Readyz(w, httptest.NewRequest(http.MethodGet, "/ready", nil))
 	if w.Code != http.StatusOK || w.Body.String() != "{\"status\":\"ready\"}\n" {
 		t.Fatalf("readiness without database: %d %s", w.Code, w.Body.String())
 	}

@@ -31,14 +31,63 @@ module path is known.
 
 ## Local development
 
-Prerequisites: Go 1.26.8, Make, a POSIX shell, Docker with Compose, and curl for
-smoke checks. The Makefile uses standard gofmt, mktemp, and diff utilities.
+Prerequisites: Go 1.26.8, Make, a POSIX shell, Google Cloud CLI, a GCP project
+with the Google Sheets API enabled, and curl for smoke checks. Docker with
+Compose is only needed for the optional local PostgreSQL database. The Makefile
+uses standard gofmt, mktemp, and diff utilities.
+
+1. Choose a GCP project and a Google spreadsheet you are allowed to read. The
+   project must have billing enabled where required and the Sheets API enabled:
+
+   ```sh
+   export GCP_PROJECT_ID=your-gcp-project-id
+   gcloud auth login
+   gcloud services enable sheets.googleapis.com --project "$GCP_PROJECT_ID"
+   ```
+
+   Enabling the API requires appropriate project permissions. Share the
+   spreadsheet with a service account as **Viewer**. For this project's personal
+   test deployment, its runtime account is
+   `room-booking-api@intania-room-booking-test.iam.gserviceaccount.com`.
+
+2. Set up local Application Default Credentials (ADC) by impersonating that
+   service account. Your Google user needs `roles/iam.serviceAccountTokenCreator`
+   on the service account; an administrator can grant it if needed. Do not
+   download a service-account key.
+
+   ```sh
+   export SHEETS_SERVICE_ACCOUNT=your-service-account@your-gcp-project-id.iam.gserviceaccount.com
+   gcloud config set project "$GCP_PROJECT_ID"
+   gcloud auth application-default login --impersonate-service-account "$SHEETS_SERVICE_ACCOUNT"
+   ```
+
+   The `gcloud` login and ADC are separate credentials. Impersonation lets the
+   Go client request its read-only Sheets scope; ordinary user ADC defaults to
+   Cloud Platform scopes and may fail with insufficient authentication scopes.
+   See [Google's ADC documentation](https://docs.cloud.google.com/docs/authentication/application-default-credentials).
+
+3. Copy the configuration, set the required spreadsheet ID and range in `.env`,
+   and run the API:
 
 ```sh
 cp .env.example .env
 make tools
 make run
 ```
+
+Open http://localhost:8080/swagger/index.html in development, or test:
+
+```sh
+curl -i http://localhost:8080/health
+curl -i http://localhost:8080/ready
+curl -i http://localhost:8080/api/v1/admin/sheet-bookings
+```
+
+The spreadsheet ID is the part between `/d/` and `/edit` in its URL. Set
+`GOOGLE_SHEET_RANGE` to the actual tab and range; keep quotes around values with
+spaces or shell-sensitive characters because `make run` sources `.env`.
+If a Sheets request returns 502, check the API is enabled, the impersonated
+account can view the Sheet, and your user can impersonate it.
 
 The public Sheets API does not need PostgreSQL. For the optional PostgreSQL-backed
 auth and OAuth features, set `DATABASE_URL` and `JWT_SECRET`, then run `make
@@ -70,8 +119,8 @@ the volume. No migrations run during startup.
 
 ## Probes and Swagger
 
-- `GET /healthz`: 200 `{"status":"ok"}`; it does not query PostgreSQL.
-- `GET /readyz`: 200 `{"status":"ready"}` when PostgreSQL is not configured;
+- `GET /health`: 200 `{"status":"ok"}`; it does not query PostgreSQL.
+- `GET /ready`: 200 `{"status":"ready"}` when PostgreSQL is not configured;
   otherwise it pings PostgreSQL with a two-second timeout and returns 503 when
   unavailable. Both probes return JSON with `Cache-Control: no-store`.
 - Development docs: http://localhost:8080/swagger/index.html and
@@ -106,16 +155,16 @@ review must still check that annotations match actual behavior.
 Smoke checks while `make run` is running:
 
 ```sh
-curl -i http://localhost:8080/healthz
-curl -i http://localhost:8080/readyz
+curl -i http://localhost:8080/health
+curl -i http://localhost:8080/ready
 curl -i http://localhost:8080/swagger/doc.json
 curl -i http://localhost:8080/api/v1/rooms
 ```
 
-With `DATABASE_URL` unset, `/readyz` remains 200 because PostgreSQL is not a
+With `DATABASE_URL` unset, `/ready` remains 200 because PostgreSQL is not a
 configured dependency. To exercise the configured database probe, set
-`DATABASE_URL`, start the Compose database, and then stop it; `/readyz` returns
-503 while `/healthz` remains 200.
+`DATABASE_URL`, start the Compose database, and then stop it; `/ready` returns
+503 while `/health` remains 200.
 
 Stop the API with Ctrl-C or SIGTERM. GitHub Actions runs checks without a DB.
 

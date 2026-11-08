@@ -31,7 +31,7 @@ func New(pinger Pinger, logger *slog.Logger) *Handler {
 // @Tags health
 // @Produce json
 // @Success 200 {object} probeResponse "status: ok"
-// @Router /healthz [get]
+// @Router /health [get]
 func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, "ok")
 }
@@ -43,7 +43,7 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 // @Produce json
 // @Success 200 {object} probeResponse "status: ready"
 // @Failure 503 {object} probeResponse "status: unavailable"
-// @Router /readyz [get]
+// @Router /ready [get]
 func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 	if h.pinger == nil {
 		respond(w, http.StatusOK, "ready")

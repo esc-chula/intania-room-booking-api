@@ -128,8 +128,8 @@ than bypassing it.
    terraform -chdir=infra plan -var="image_url=$IMAGE_URL"
    terraform -chdir=infra apply -var="image_url=$IMAGE_URL"
    export SERVICE_URL="$(terraform -chdir=infra output -raw service_url)"
-   curl -fsS "$SERVICE_URL/healthz"
-   curl -fsS "$SERVICE_URL/readyz"
+   curl -fsS "$SERVICE_URL/health"
+   curl -fsS "$SERVICE_URL/ready"
    curl -fsS "$SERVICE_URL/api/v1/admin/sheet-bookings"
    gcloud run services describe room-booking-api --region "$REGION" --project "$PROJECT_ID"
    gcloud run services get-iam-policy room-booking-api --region "$REGION" --project "$PROJECT_ID"
@@ -232,7 +232,7 @@ CI runs checks on PRs and main pushes; only successful main pushes publish an
 image tagged by commit SHA. Start **Release** on `main` with the full SHA of a
 successful push to deploy its registry digest. Release refuses unrelated
 Terraform changes; apply those using the infrastructure workflow first. The
-first release creates Cloud Run. The release checks `/readyz` after applying;
+first release creates Cloud Run. The release checks `/ready` after applying;
 a readiness failure is reported but does not automatically roll back. To roll
 back, run Release with a previous successful SHA whose image is still present.
 
