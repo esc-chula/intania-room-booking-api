@@ -36,8 +36,8 @@ func NewRouter(config RouterConfig) http.Handler {
 	}
 	r.Use(requestmiddleware.RequestLogger(config.Logger))
 	r.Use(middleware.Recoverer)
-	r.Get("/healthz", config.Health.Healthz)
-	r.Get("/readyz", config.Health.Readyz)
+	r.Get("/health", config.Health.Healthz)
+	r.Get("/ready", config.Health.Readyz)
 	if config.Auth != nil {
 		r.Route("/api/v1/auth", func(r chi.Router) {
 			r.With(config.Auth.Authenticate).Get("/me", config.Auth.Me)
