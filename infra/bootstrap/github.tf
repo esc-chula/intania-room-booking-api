@@ -54,7 +54,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   attribute_condition                = "assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '${var.github_owner_id}' && assertion.ref == 'refs/heads/main'"
   attribute_mapping = {
     "google.subject"   = "assertion.sub"
-    "attribute.access" = "assertion.workflow_ref == '${var.github_repository}/.github/workflows/ci.yml@refs/heads/main' ? 'publisher' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/terraform.yml@refs/heads/main' && !has(assertion.environment) ? 'plan' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/terraform.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'personal-infra-apply' ? 'apply' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/release.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'personal-release' ? 'apply' : 'denied'"
+    "attribute.access" = "assertion.workflow_ref == '${var.github_repository}/.github/workflows/ci.yml@refs/heads/main' ? 'publisher' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/terraform.yml@refs/heads/main' && !has(assertion.environment) ? 'plan' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/terraform.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'infra-apply' ? 'apply' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/release.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'release' ? 'apply' : 'denied'"
   }
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
