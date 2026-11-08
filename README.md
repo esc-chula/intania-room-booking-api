@@ -38,22 +38,13 @@ You need Go 1.26.8, Make, the Google Cloud CLI, a Google Cloud project with the 
 
 ## Google Sheets booking endpoints
 
-All three endpoints return JSON, use the same 60-second in-memory Sheet cache, and set `Cache-Control: no-store`. Invalid query parameters return `400` with `{"error":"invalid query parameters"}`. A Sheets fetch failure returns `502` with `{"error":"failed to fetch sheet bookings"}`.
+View the interactive API docs at [http://localhost:8080/swagger/index.html](http://localhost:8080/swagger/index.html) while the API is running locally.
 
-If you get `502` locally, check that the Sheets API is enabled for your project, the service account can view the spreadsheet, and the ID and range in `.env` are correct.
+All three endpoints return JSON from a shared 60-second Sheet cache. Invalid queries return `400`; Sheet fetch failures return `502`. For a `502`, check Sheet access, the enabled Sheets API, and the ID and range in `.env`.
 
 ### List bookings
 
-`GET /api/v1/admin/sheet-bookings`
-
-| Query parameter | Behavior |
-| --- | --- |
-| `page`, `page_size` | Defaults: 1 and 20. Maximum page size: 100. |
-| `year`, `month` | Optional, but must be supplied together. Includes bookings whose date range overlaps the month. |
-| `building` | Optional: `ENG 3`, `ENG 100`, or `ENG 4`. |
-| `status` | Optional: `approved`, `cancelled`, `submitted`, `timeline`, `needs_revision`, or `conflicted`. |
-
-The response is `{"items":[...],"page":1,"page_size":20,"total":0}`. Each item has `id`, `name`, `room`, `start_date`, `end_date`, `start_time`, `end_time`, `status`, and `conflicted`. The `conflicted` filter selects active bookings that overlap another active booking in the same room and time window.
+`GET /api/v1/admin/sheet-bookings` returns `{ "items": [], "page": 1, "page_size": 20, "total": 0 }`. Filter by `year` and `month` together, `building`, or `status`. Pagination defaults to page 1 with 20 items; `page_size` can be at most 100.
 
 ```sh
 curl 'http://localhost:8080/api/v1/admin/sheet-bookings?year=2026&month=11&page=1&page_size=20'
@@ -61,9 +52,7 @@ curl 'http://localhost:8080/api/v1/admin/sheet-bookings?year=2026&month=11&page=
 
 ### Monthly calendar
 
-`GET /api/v1/admin/sheet-bookings/calendar`
-
-`year` and `month` are required. `building` is optional and accepts the same three values as the list endpoint. The response has `year`, `month`, and `days`. Each day contains a `date` in `YYYY-MM-DD` format and `counts` with `approved`, `cancelled`, `submitted`, `timeline`, `needs_revision`, and `conflicted`. Days with no bookings are omitted. Conflict counts are additional to the status counts.
+`GET /api/v1/admin/sheet-bookings/calendar` requires `year` and `month` and accepts optional `building`. It returns daily booking status and conflict counts in `{ "year": 2026, "month": 11, "days": [...] }`.
 
 ```sh
 curl 'http://localhost:8080/api/v1/admin/sheet-bookings/calendar?year=2026&month=11&building=ENG%203'
@@ -71,15 +60,7 @@ curl 'http://localhost:8080/api/v1/admin/sheet-bookings/calendar?year=2026&month
 
 ### Weekly room schedule
 
-`GET /api/v1/admin/sheet-bookings/weekly`
-
-| Query parameter | Behavior |
-| --- | --- |
-| `start_date` | Optional `YYYY-MM-DD`; defaults to today in Bangkok. |
-| `end_date` | Optional inclusive `YYYY-MM-DD`; defaults to six days after `start_date`. Requires `start_date` if supplied. The range may span at most seven days. |
-| `building` | Optional: `ENG 3`, `ENG 100`, or `ENG 4`. |
-
-The response has `start_date`, `end_date`, and `rooms`. Every catalog room in the selected buildings appears, including rooms with an empty `bookings` array. Each room has `id`, `building`, `name`, and `bookings`. Each booking has `id`, `title`, `start_at`, `end_at`, `status`, and `has_conflict`; timestamps use Bangkok time. Multi-day bookings appear on each day they cover.
+`GET /api/v1/admin/sheet-bookings/weekly` returns `{ "start_date": "...", "end_date": "...", "rooms": [...] }`, including rooms without bookings. Optional `start_date` and `end_date` use `YYYY-MM-DD` and cover at most seven days; the default is today through six days later in Bangkok. `end_date` requires `start_date`. Optional `building` filters the rooms.
 
 ```sh
 curl 'http://localhost:8080/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02&end_date=2026-11-08&building=ENG%20100'
