@@ -79,9 +79,23 @@ jobs:
           terraform -chdir=infra init -input=false -backend-config="bucket=$STATE_BUCKET" -backend-config="prefix=$STATE_PREFIX"
           terraform -chdir=infra plan -input=false -out="$RUNNER_TEMP/release.tfplan"
           terraform -chdir=infra show -json "$RUNNER_TEMP/release.tfplan" | python3 .github/scripts/check-release-plan.py
-      - name: Apply and check readiness
+      - name: Apply release
         run: |
           set -eu
           terraform -chdir=infra apply -input=false "$RUNNER_TEMP/release.tfplan"
           url="$(terraform -chdir=infra output -raw service_url)"
-          curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "$url/ready"
+          echo "SERVICE_URL=$url" >> "$GITHUB_ENV"
+      - id: invoke_auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_TERRAFORM_SA }}
+          token_format: id_token
+          id_token_audience: ${{ env.SERVICE_URL }}
+          id_token_include_email: true
+          create_credentials_file: false
+      - name: Check readiness
+        env:
+          ID_TOKEN: ${{ steps.invoke_auth.outputs.id_token }}
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors --header "Authorization: Bearer $ID_TOKEN" "$SERVICE_URL/ready"

@@ -10,8 +10,6 @@ for resource in plan.get("resource_changes", []):
     if actions in (["no-op"], ["read"]):
         continue
     address = resource["address"]
-    if address == "google_cloud_run_v2_service_iam_member.public[0]" and actions == ["create"]:
-        continue
     if address != "google_cloud_run_v2_service.api[0]":
         sys.exit(f"Release includes unrelated change: {address} {actions}")
     if actions == ["create"]:
