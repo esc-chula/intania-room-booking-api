@@ -13,3 +13,12 @@ coverage.html
 .DS_Store
 .idea/
 .vscode/
+
+# Terraform state, local configuration, and generated plans
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+*.tfplan
+*.tfbackend

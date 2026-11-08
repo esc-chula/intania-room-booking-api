@@ -1,0 +1,6 @@
+project_id     = "intania-room-booking-test"
+region         = "asia-southeast1"
+spreadsheet_id = "1vxKWL-5046HyzFZX1BvHl1F1AIMDlAnJJsmauTOJdQ8"
+sheet_range    = "จองห้อง!A9:AM"
+# Set after pushing an image; use an immutable digest for repeatable deployments.
+# image_url = "asia-southeast1-docker.pkg.dev/intania-room-booking-test/room-booking/api@sha256:..."
