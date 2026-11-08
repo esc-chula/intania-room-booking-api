@@ -35,6 +35,19 @@ gcloud iam service-accounts list --project "$PROJECT_ID"
 gcloud storage buckets describe "gs://$STATE_BUCKET" --project "$PROJECT_ID"
 ```
 
+The bootstrap also requires the numeric GitHub repository and owner IDs. For a
+private repository, use an authenticated GitHub CLI session to get them:
+
+```sh
+gh api repos/MadManJJ/room-reservation-api --jq '"repository ID: \(.id)\nowner ID: \(.owner.id)"'
+export TF_VAR_github_repository_id=REPLACE_WITH_REPOSITORY_ID
+export TF_VAR_github_owner_id=REPLACE_WITH_OWNER_ID
+```
+
+These environment variables must be set for every bootstrap plan, apply, or
+destroy. Use the actual IDs, not the names or placeholders. Restrict the GitHub
+environments before applying the identity setup described below.
+
 The last command may report that the bucket does not exist; bucket names are
 globally unique, so choose another name if it belongs to someone else. Check
 organization policies for public `allUsers` invocation and service-account
@@ -51,6 +64,10 @@ than bypassing it.
 
 1. Create the GCS backend with its own **local** state. Keep and back up
    `infra/bootstrap/terraform.tfstate` securely until the bucket is destroyed.
+   The full bootstrap also creates GitHub federation and IAM bindings, which
+   require the registry and runtime account. On a fresh project, create only
+   the bucket at this step; complete the identity setup after step 2. The
+   targeted apply is only for breaking this first-time dependency cycle.
    The state bucket is versioned and private; its contents may still contain
    sensitive infrastructure details. Soft delete is disabled for this temporary
    bucket so the requested cleanup is complete; removed object versions cannot
@@ -58,8 +75,8 @@ than bypassing it.
 
    ```sh
    terraform -chdir=infra/bootstrap init
-   terraform -chdir=infra/bootstrap plan -var="project_id=$PROJECT_ID" -var="state_bucket_name=$STATE_BUCKET" -var="region=$REGION"
-   terraform -chdir=infra/bootstrap apply -var="project_id=$PROJECT_ID" -var="state_bucket_name=$STATE_BUCKET" -var="region=$REGION"
+   terraform -chdir=infra/bootstrap plan -target=google_storage_bucket.terraform_state -var="project_id=$PROJECT_ID" -var="state_bucket_name=$STATE_BUCKET" -var="region=$REGION"
+   terraform -chdir=infra/bootstrap apply -target=google_storage_bucket.terraform_state -var="project_id=$PROJECT_ID" -var="state_bucket_name=$STATE_BUCKET" -var="region=$REGION"
    ```
 
 2. Initialize the application stack with a separate GCS state prefix and
@@ -77,6 +94,16 @@ than bypassing it.
    If necessary, share the Sheet with the printed service-account email as a
    Viewer. Wait for permissions to propagate. Cloud Run uses ADC from its
    attached identity; it needs no project-wide role to read this Sheet.
+
+   Once the registry and runtime identity exist, configure GitHub environment
+   protections as described below, then review and apply the full bootstrap:
+
+   ```sh
+   terraform -chdir=infra/bootstrap plan -var="project_id=$PROJECT_ID" -var="state_bucket_name=$STATE_BUCKET" -var="region=$REGION"
+   terraform -chdir=infra/bootstrap apply -var="project_id=$PROJECT_ID" -var="state_bucket_name=$STATE_BUCKET" -var="region=$REGION"
+   terraform -chdir=infra/bootstrap output github_wif_provider
+   terraform -chdir=infra/bootstrap output github_service_accounts
+   ```
 
 3. Build for Cloud Run's Linux x86-64 platform and push a versioned image.
    Docker authentication may update your local Docker configuration.
@@ -118,7 +145,16 @@ than bypassing it.
 
 ## Destroy the test
 
-Run this only for the personal test after reviewing the destroy plan. It deletes
+Run this only for the personal test after reviewing the destroy plan. Destroy
+the bootstrap IAM and identity resources before deleting the registry and
+runtime service account, and preserve the state bucket until the main stack is
+destroyed. Disable GitHub workflows first. Review targeted destruction carefully:
+
+```sh
+terraform -chdir=infra/bootstrap destroy -target=google_iam_workload_identity_pool.github -target=google_service_account.github -target=google_artifact_registry_repository_iam_member.publisher -target=google_artifact_registry_repository_iam_member.reader -target=google_storage_bucket_iam_member.state -target=google_project_iam_member.plan_viewer -target=google_project_iam_member.apply -target=google_service_account_iam_member.runtime_user -var="project_id=$PROJECT_ID" -var="state_bucket_name=$STATE_BUCKET" -var="region=$REGION"
+```
+
+Then destroy the main stack. It deletes
 the Cloud Run service, its public binding, the runtime identity, the repository,
 and its pushed images. APIs remain enabled. Keep the bootstrap local state until
 the final step succeeds.
@@ -186,6 +222,11 @@ restrict them to `main`, and configure required reviewers for the infrastructure
 apply environment. Confirm your GitHub repository plan supports required
 reviewers; do not run the infrastructure workflow without that protection.
 Configure the release environment according to the team's approval policy.
+The identity provider accepts only these exact workflow files on main and the
+specified environment names. A repository administrator can change environment
+protections or workflow files, so restrict administrator access and protect
+changes to `main`. Both Terraform identities can modify objects in the state
+bucket to use locking; treat the plan identity as sensitive too.
 
 CI runs checks on PRs and main pushes; only successful main pushes publish an
 image tagged by commit SHA. Start **Release** on `main` with the full SHA of a
