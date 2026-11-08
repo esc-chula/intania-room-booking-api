@@ -211,13 +211,13 @@ identity needs resource read permissions and state-bucket access (including
 lock object writes); do not grant it resource modification permissions. The
 apply identity needs the permissions to manage the Terraform resources, act as
 the runtime identity, read the registry and access state. Restrict its
-impersonation to `personal-infra-apply` and `personal-release` environments,
+impersonation to `infra-apply` and `release` environments,
 not to all main-branch workflow tokens. Grant only the needed roles after
 inventorying existing IAM. Plan artifacts and Terraform state can contain
 sensitive data: restrict repository and artifact access and use one-day artifact
 retention. Do not put credentials in Terraform variables or GitHub variables.
 
-Create GitHub environments `personal-infra-apply` and `personal-release`,
+Create GitHub environments `infra-apply` and `release`,
 restrict them to `main`, and configure required reviewers for the infrastructure
 apply environment. Confirm your GitHub repository plan supports required
 reviewers; do not run the infrastructure workflow without that protection.
