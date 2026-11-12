@@ -112,13 +112,35 @@ func TestPreloadedOSAndConflicts(t *testing.T) {
 	if err != nil || changed != 1 {
 		t.Fatalf("seed: %d %v", changed, err)
 	}
+	var preloadedID string
 	var email *string
-	if err := pool.QueryRow(ctx, `SELECT email FROM users WHERE student_id = '6730000021'`).Scan(&email); err != nil || email != nil {
+	if err := pool.QueryRow(ctx, `SELECT id::text, email FROM users WHERE student_id = '6730000021'`).Scan(&preloadedID, &email); err != nil || email != nil {
 		t.Fatalf("preloaded profile is not null: %v %v", email, err)
 	}
-	u, err := repo.ResolveGoogleUser(ctx, "6730000021@student.chula.ac.th", "6730000021", "OS", "Student")
-	if err != nil || u.Role != user.RoleOS || u.FirstName != "OS" || u.LastName != "Student" {
+	u, err := repo.ResolveGoogleUser(ctx, "6730000021@student.chula.ac.th", "6730000021", "OS", "")
+	if err != nil || u.ID != preloadedID || u.Role != user.RoleOS || u.FirstName != "OS" || u.LastName != "" || u.Email != "6730000021@student.chula.ac.th" {
 		t.Fatalf("OS login: %+v %v", u, err)
+	}
+	u, err = repo.ResolveGoogleUser(ctx, u.Email, u.StudentID, "Changed", "Student")
+	if err != nil || u.ID != preloadedID || u.Role != user.RoleOS || u.FirstName != "OS" || u.LastName != "Student" {
+		t.Fatalf("later OS profile fill: %+v %v", u, err)
+	}
+	if changed, err := repo.SeedOSUsers(ctx, []string{"6730000021"}); err != nil || changed != 0 {
+		t.Fatalf("repeat OS seed: %d %v", changed, err)
+	}
+	again, err := repo.ResolveGoogleUser(ctx, u.Email, u.StudentID, "Changed", "Changed")
+	if err != nil || again != u {
+		t.Fatalf("existing OS profile changed: %+v %v", again, err)
+	}
+	if changed, err := repo.SeedOSUsers(ctx, []string{"6740000021"}); err != nil || changed != 1 {
+		t.Fatalf("second OS seed: %d %v", changed, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE users SET first_name = 'Existing' WHERE student_id = '6740000021'`); err != nil {
+		t.Fatal(err)
+	}
+	partial, err := repo.ResolveGoogleUser(ctx, "6740000021@student.chula.ac.th", "6740000021", "Google", "Surname")
+	if err != nil || partial.Role != user.RoleOS || partial.FirstName != "Existing" || partial.LastName != "Surname" {
+		t.Fatalf("preloaded OS name overwritten: %+v %v", partial, err)
 	}
 	if _, err := repo.ResolveGoogleUser(ctx, "other21@student.chula.ac.th", "6730000021", "", ""); !errors.Is(err, auth.ErrIdentityConflict) {
 		t.Fatalf("student ID mismatch accepted: %v", err)

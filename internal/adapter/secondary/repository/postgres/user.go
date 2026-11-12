@@ -64,21 +64,18 @@ func (r *Users) resolveGoogleUser(ctx context.Context, email, studentID, firstNa
 	if emailErr == nil && studentErr == nil && byEmail.ID != byStudent.ID {
 		return user.User{}, auth.ErrIdentityConflict
 	}
+	if studentErr == nil && byStudent.Email != "" && !strings.EqualFold(byStudent.Email, email) {
+		return user.User{}, auth.ErrIdentityConflict
+	}
 	var u user.User
 	switch {
 	case emailErr == nil:
-		u = byEmail // Existing email is deliberately never updated.
-	case studentErr == nil:
-		if byStudent.Email != "" {
-			if !strings.EqualFold(byStudent.Email, email) {
-				return user.User{}, auth.ErrIdentityConflict
-			}
-			u = byStudent // A concurrent login may have filled this row after the email lookup.
-		} else {
-			u, err = scanUser(tx.QueryRow(ctx, `UPDATE users SET first_name = $2, last_name = $3, email = $4,
-				updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE id = $1::uuid RETURNING `+userColumns,
-				byStudent.ID, nullable(firstName), nullable(lastName), email))
+		u = byEmail
+		if studentErr == nil {
+			u = byStudent
 		}
+	case studentErr == nil:
+		u = byStudent
 	case studentID != "":
 		u, err = scanUser(tx.QueryRow(ctx, `INSERT INTO users
 			(id, student_id, first_name, last_name, email, role, active, created_at, updated_at)
@@ -89,6 +86,14 @@ func (r *Users) resolveGoogleUser(ctx context.Context, email, studentID, firstNa
 			(id, first_name, last_name, email, role, active, created_at, updated_at)
 			VALUES (gen_random_uuid(), $1, $2, $3, 'USER_A', true, CURRENT_TIMESTAMP AT TIME ZONE 'UTC', CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
 			RETURNING `+userColumns, nullable(firstName), nullable(lastName), email))
+	}
+	if studentErr == nil && (byStudent.Email == "" || byStudent.Role == user.RoleOS && (byStudent.FirstName == "" && firstName != "" || byStudent.LastName == "" && lastName != "")) {
+		u, err = scanUser(tx.QueryRow(ctx, `UPDATE users SET
+			first_name = COALESCE(NULLIF(first_name, ''), NULLIF($2, ''), first_name),
+			last_name = COALESCE(NULLIF(last_name, ''), NULLIF($3, ''), last_name),
+			email = COALESCE(NULLIF(email, ''), $4),
+			updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+			WHERE id = $1::uuid RETURNING `+userColumns, byStudent.ID, firstName, lastName, email))
 	}
 	if err != nil {
 		return user.User{}, err
