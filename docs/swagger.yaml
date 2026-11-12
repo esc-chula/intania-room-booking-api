@@ -155,7 +155,7 @@ paths:
         in: query
         name: month
         type: integer
-      - description: ENG building name
+      - description: Building name from the room catalog
         in: query
         name: building
         type: string
@@ -210,7 +210,7 @@ paths:
         name: month
         required: true
         type: integer
-      - description: ENG building name
+      - description: Building name from the room catalog
         in: query
         name: building
         type: string
@@ -250,7 +250,7 @@ paths:
         in: query
         name: end_date
         type: string
-      - description: ENG 3, ENG 100, or ENG 4
+      - description: Building name from the room catalog
         in: query
         name: building
         type: string

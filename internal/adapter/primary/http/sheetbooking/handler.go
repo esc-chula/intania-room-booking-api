@@ -32,7 +32,7 @@ func New(service domainbooking.Service, logger *slog.Logger) *Handler {
 // @Produce json
 // @Param year query int false "Calendar year; requires month"
 // @Param month query int false "Month 1-12; requires year"
-// @Param building query string false "ENG building name"
+// @Param building query string false "Building name from the room catalog"
 // @Param status query string false "approved, cancelled, submitted, timeline, needs_revision, or conflicted"
 // @Param page query int false "Page number, default 1"
 // @Param page_size query int false "Page size, default 20, maximum 100"
@@ -63,7 +63,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 // @Produce json
 // @Param year query int true "Calendar year"
 // @Param month query int true "Month 1-12"
-// @Param building query string false "ENG building name"
+// @Param building query string false "Building name from the room catalog"
 // @Success 200 {object} domainbooking.CalendarResult
 // @Failure 400 {object} errorResponse
 // @Failure 429 {object} errorResponse
@@ -91,7 +91,7 @@ func (h *Handler) Calendar(w http.ResponseWriter, r *http.Request) {
 // @Produce json
 // @Param start_date query string false "Start date YYYY-MM-DD; defaults to today in Bangkok"
 // @Param end_date query string false "End date YYYY-MM-DD; defaults to six days after start_date"
-// @Param building query string false "ENG 3, ENG 100, or ENG 4"
+// @Param building query string false "Building name from the room catalog"
 // @Success 200 {object} domainbooking.WeeklyResult
 // @Failure 400 {object} errorResponse
 // @Failure 429 {object} errorResponse

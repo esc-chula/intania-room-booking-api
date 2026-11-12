@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	domain "github.com/MadManJJ/room-reservation-api/internal/core/domain/sheetbooking"
@@ -102,6 +103,34 @@ func TestWeeklyHandler(t *testing.T) {
 			var result domain.WeeklyResult
 			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.StartDate != "2026-11-02" || len(result.Rooms) != 2 || len(result.Rooms[0].Bookings) != 1 || len(result.Rooms[1].Bookings) != 0 {
 				t.Fatalf("response: %+v %v", result, err)
+			}
+		}
+	}
+}
+
+func TestHandlersAcceptPlainRoomBuildings(t *testing.T) {
+	h := New(domain.New(rows{}, map[string][]string{
+		"ห้องพิเศษ + ห้องภาค": {"True Lab"},
+		"ลานกิจกรรม":          {"ลานเกียร์"},
+	}), slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	for _, building := range []string{"ห้องพิเศษ + ห้องภาค", "ลานกิจกรรม", "unknown"} {
+		want := http.StatusOK
+		if building == "unknown" {
+			want = http.StatusBadRequest
+		}
+		for _, endpoint := range []struct {
+			path string
+			call func(http.ResponseWriter, *http.Request)
+		}{
+			{"/api/v1/admin/sheet-bookings?", h.List},
+			{"/api/v1/admin/sheet-bookings/calendar?year=2026&month=11&", h.Calendar},
+			{"/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02&", h.Weekly},
+		} {
+			path := endpoint.path + "building=" + url.QueryEscape(building)
+			w := httptest.NewRecorder()
+			endpoint.call(w, httptest.NewRequest(http.MethodGet, path, nil))
+			if w.Code != want {
+				t.Errorf("%s: status %d, want %d", path, w.Code, want)
 			}
 		}
 	}

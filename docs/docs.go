@@ -40,7 +40,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "ENG building name",
+                        "description": "Building name from the room catalog",
                         "name": "building",
                         "in": "query"
                     },
@@ -118,7 +118,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "ENG building name",
+                        "description": "Building name from the room catalog",
                         "name": "building",
                         "in": "query"
                     }
@@ -176,7 +176,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "ENG 3, ENG 100, or ENG 4",
+                        "description": "Building name from the room catalog",
                         "name": "building",
                         "in": "query"
                     }

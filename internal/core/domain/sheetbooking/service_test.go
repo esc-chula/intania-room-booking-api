@@ -72,3 +72,54 @@ func TestWeekly(t *testing.T) {
 		t.Fatalf("multi-day or building filter: %+v %v", longer, err)
 	}
 }
+
+func TestCatalogBuildingFilters(t *testing.T) {
+	date := "2026-11-02"
+	rows := fakeReader{
+		{ID: "1", Room: " True Lab ", StartDate: date, EndDate: date, StartTime: "09:00", EndTime: "11:00", Status: "approved"},
+		{ID: "2", Room: "True Lab", StartDate: date, EndDate: date, StartTime: "10:00", EndTime: "12:00", Status: "submitted"},
+		{ID: "3", Room: " ลานเกียร์ ", StartDate: date, EndDate: date, StartTime: "09:00", EndTime: "11:00", Status: "approved"},
+		{ID: "4", Room: "ลานเกียร์", StartDate: date, EndDate: date, StartTime: "10:00", EndTime: "12:00", Status: "submitted"},
+		{ID: "5", Room: "ENG 100/A", StartDate: date, EndDate: date, StartTime: "09:00", EndTime: "11:00", Status: "approved"},
+		{ID: "6", Room: "unknown", StartDate: date, EndDate: date, StartTime: "09:00", EndTime: "11:00", Status: "approved"},
+	}
+	s := New(rows, map[string][]string{
+		"ENG 100": {"A"},
+		"ห้องพิเศษ + ห้องภาค": {"True Lab"},
+		"ลานกิจกรรม":          {"ลานเกียร์"},
+	})
+	if s.ValidBuilding("unknown") {
+		t.Fatal("unknown building accepted")
+	}
+	for _, tc := range []struct {
+		building, room   string
+		count, conflicts int
+	}{
+		{"ห้องพิเศษ + ห้องภาค", "True Lab", 2, 2},
+		{"ลานกิจกรรม", "ลานเกียร์", 2, 2},
+		{"ENG 100", "A", 1, 0},
+	} {
+		t.Run(tc.building, func(t *testing.T) {
+			if !s.ValidBuilding(tc.building) {
+				t.Fatal("catalog building rejected")
+			}
+			calendar, err := s.Calendar(context.Background(), 2026, 11, tc.building)
+			if err != nil || len(calendar.Days) != 1 || calendar.Days[0].Counts.Approved != 1 || calendar.Days[0].Counts.Conflicted != tc.conflicts {
+				t.Fatalf("calendar: %+v %v", calendar, err)
+			}
+			page, err := s.List(context.Background(), Query{Building: tc.building, Page: 1, PageSize: 20})
+			if err != nil || page.Total != tc.count || len(page.Items) != tc.count {
+				t.Fatalf("list: %+v %v", page, err)
+			}
+			weekly, err := s.Weekly(context.Background(), date, date, tc.building)
+			if err != nil || len(weekly.Rooms) != 1 || weekly.Rooms[0].Name != tc.room || len(weekly.Rooms[0].Bookings) != tc.count {
+				t.Fatalf("weekly: %+v %v", weekly, err)
+			}
+			for _, booking := range weekly.Rooms[0].Bookings {
+				if booking.HasConflict != (tc.conflicts != 0) {
+					t.Fatalf("conflict: %+v", booking)
+				}
+			}
+		})
+	}
+}

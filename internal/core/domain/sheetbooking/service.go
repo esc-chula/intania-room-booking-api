@@ -22,7 +22,7 @@ func New(reader Reader, rooms map[string][]string) Service {
 }
 func (s *service) ValidBuilding(name string) bool {
 	_, ok := s.rooms[name]
-	return ok && (name == "ENG 3" || name == "ENG 100" || name == "ENG 4")
+	return ok
 }
 
 type parsed struct {
@@ -77,8 +77,20 @@ func inMonth(p parsed, year, month int) bool {
 	next := first.AddDate(0, 1, 0)
 	return p.start.Before(next) && !p.end.Before(first)
 }
-func buildingMatch(room, building string) bool {
-	return building == "" || strings.HasPrefix(room, building+"/")
+func (s *service) buildingMatch(room, building string) bool {
+	if building == "" {
+		return true
+	}
+	room = strings.TrimSpace(room)
+	if strings.HasPrefix(building, "ENG ") {
+		return strings.HasPrefix(room, building+"/")
+	}
+	for _, name := range s.rooms[building] {
+		if room != "" && room == strings.TrimSpace(name) {
+			return true
+		}
+	}
+	return false
 }
 func markConflicts(rows []parsed, year, month int) {
 	for i := range rows {
@@ -99,7 +111,7 @@ func (s *service) List(ctx context.Context, q Query) (Page, error) {
 	markConflicts(parsedRows, q.Year, q.Month)
 	page := Page{Items: make([]Booking, 0), Page: q.Page, PageSize: q.PageSize}
 	for _, p := range parsedRows {
-		if q.Year != 0 && !inMonth(p, q.Year, q.Month) || !buildingMatch(p.booking.Room, q.Building) || q.Status != "" && q.Status != "conflicted" && p.booking.Status != q.Status || q.Status == "conflicted" && !p.booking.Conflicted {
+		if q.Year != 0 && !inMonth(p, q.Year, q.Month) || !s.buildingMatch(p.booking.Room, q.Building) || q.Status != "" && q.Status != "conflicted" && p.booking.Status != q.Status || q.Status == "conflicted" && !p.booking.Conflicted {
 			continue
 		}
 		page.Total++
@@ -122,7 +134,7 @@ func (s *service) Calendar(ctx context.Context, year, month int, building string
 		counts := Counts{}
 		todays := make([]int, 0)
 		for i, p := range all {
-			if !p.validDate || d.Before(p.start) || d.After(p.end) || !buildingMatch(p.booking.Room, building) {
+			if !p.validDate || d.Before(p.start) || d.After(p.end) || !s.buildingMatch(p.booking.Room, building) {
 				continue
 			}
 			switch p.booking.Status {
@@ -181,7 +193,7 @@ func (s *service) Weekly(ctx context.Context, startDate, endDate, building strin
 		labels := append([]string(nil), s.rooms[name]...)
 		sort.Strings(labels)
 		for _, label := range labels {
-			key := label
+			key := strings.TrimSpace(label)
 			if strings.HasPrefix(name, "ENG ") {
 				key = name + "/" + label
 			}
