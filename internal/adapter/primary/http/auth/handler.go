@@ -35,7 +35,7 @@ func New(service domainauth.Service, logger *slog.Logger, secure bool, sameSite 
 // @Produce json
 // @Success 200 {object} user.User
 // @Failure 401 {object} errorResponse
-// @Failure 500 {object} errorResponse
+// @Failure 503 {object} errorResponse
 // @Router /api/v1/auth/me [get]
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	u, ok := CurrentUser(r.Context())
@@ -103,7 +103,7 @@ func (h *Handler) RequireRoles(roles ...string) func(http.Handler) http.Handler 
 }
 
 func (h *Handler) failure(w http.ResponseWriter, r *http.Request, err error) {
-	status, message := http.StatusInternalServerError, "internal server error"
+	status, message := http.StatusServiceUnavailable, "authentication unavailable"
 	switch {
 	case errors.Is(err, domainauth.ErrUnauthorized):
 		status, message = http.StatusUnauthorized, "invalid authentication cookie"

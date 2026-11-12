@@ -18,7 +18,7 @@ type sheetBucket struct {
 	last   time.Time
 }
 
-// SheetRateLimit applies a per-IP token bucket to the public Sheet endpoints.
+// SheetRateLimit applies a per-IP token bucket to the Sheet endpoints.
 // The buckets are local to an instance; use an edge limiter if instances scale out.
 func SheetRateLimit() func(http.Handler) http.Handler {
 	var mu sync.Mutex

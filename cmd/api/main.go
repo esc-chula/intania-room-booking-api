@@ -29,8 +29,11 @@ import (
 
 // @title Chula Room Booking API
 // @version 0.1.0
-// @description Live spreadsheet bookings are publicly available. Optional Google OAuth sign-in sets a one-hour HttpOnly authentication cookie.
+// @description Authenticated users can read live spreadsheet bookings. Google OAuth sign-in sets a one-hour HttpOnly authentication cookie.
 // @BasePath /
+// @securityDefinitions.apikey CookieAuth
+// @in header
+// @name Cookie
 func main() {
 	if err := run(); err != nil {
 		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("application stopped", "error", err)

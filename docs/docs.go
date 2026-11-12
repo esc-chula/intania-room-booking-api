@@ -17,14 +17,19 @@ const docTemplate = `{
     "paths": {
         "/api/v1/admin/sheet-bookings": {
             "get": {
-                "description": "Reads a 60-second cached Sheet snapshot without authentication. Shares a per-IP limit of 600 requests per minute, with a burst of 600, across the three Sheet endpoints.",
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
+                "description": "Requires an authenticated active user of any role. Reads a 60-second cached Sheet snapshot and shares a per-IP limit of 600 requests per minute, with a burst of 600, across the three Sheet endpoints.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sheet-bookings"
                 ],
-                "summary": "List public spreadsheet bookings",
+                "summary": "List spreadsheet bookings",
                 "parameters": [
                     {
                         "type": "integer",
@@ -76,6 +81,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
                     },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
@@ -87,20 +98,31 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
                     }
                 }
             }
         },
         "/api/v1/admin/sheet-bookings/calendar": {
             "get": {
-                "description": "Conflicted counts active bookings overlapping the same room and daily time window. No authentication is required. Shares the per-IP Sheet endpoint limit.",
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
+                "description": "Requires an authenticated active user of any role. Conflicted counts active bookings overlapping the same room and daily time window. Shares the per-IP Sheet endpoint limit.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sheet-bookings"
                 ],
-                "summary": "Public monthly spreadsheet booking calendar",
+                "summary": "Monthly spreadsheet booking calendar",
                 "parameters": [
                     {
                         "type": "integer",
@@ -136,6 +158,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
                     },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
@@ -147,20 +175,31 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
                     }
                 }
             }
         },
         "/api/v1/admin/sheet-bookings/weekly": {
             "get": {
-                "description": "Uses the 60-second cached Sheet snapshot without authentication. Dates are inclusive and use Bangkok time. Shares the per-IP Sheet endpoint limit.",
+                "security": [
+                    {
+                        "CookieAuth": []
+                    }
+                ],
+                "description": "Requires an authenticated active user of any role. Uses the 60-second cached Sheet snapshot. Dates are inclusive and use Bangkok time. Shares the per-IP Sheet endpoint limit.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "sheet-bookings"
                 ],
-                "summary": "Public weekly spreadsheet room schedule",
+                "summary": "Weekly spreadsheet room schedule",
                 "parameters": [
                     {
                         "type": "string",
@@ -194,6 +233,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
                     },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
@@ -202,6 +247,12 @@ const docTemplate = `{
                     },
                     "502": {
                         "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/sheetbooking.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/sheetbooking.errorResponse"
                         }
@@ -246,8 +297,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/auth.errorResponse"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/auth.errorResponse"
                         }
@@ -573,6 +624,13 @@ const docTemplate = `{
                 }
             }
         }
+    },
+    "securityDefinitions": {
+        "CookieAuth": {
+            "type": "apiKey",
+            "name": "Cookie",
+            "in": "header"
+        }
     }
 }`
 
@@ -583,7 +641,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "Chula Room Booking API",
-	Description:      "Live spreadsheet bookings are publicly available. Optional Google OAuth sign-in sets a one-hour HttpOnly authentication cookie.",
+	Description:      "Authenticated users can read live spreadsheet bookings. Google OAuth sign-in sets a one-hour HttpOnly authentication cookie.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

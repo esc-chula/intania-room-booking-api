@@ -136,16 +136,16 @@ definitions:
     type: object
 info:
   contact: {}
-  description: Live spreadsheet bookings are publicly available. Optional Google OAuth
+  description: Authenticated users can read live spreadsheet bookings. Google OAuth
     sign-in sets a one-hour HttpOnly authentication cookie.
   title: Chula Room Booking API
   version: 0.1.0
 paths:
   /api/v1/admin/sheet-bookings:
     get:
-      description: Reads a 60-second cached Sheet snapshot without authentication.
-        Shares a per-IP limit of 600 requests per minute, with a burst of 600, across
-        the three Sheet endpoints.
+      description: Requires an authenticated active user of any role. Reads a 60-second
+        cached Sheet snapshot and shares a per-IP limit of 600 requests per minute,
+        with a burst of 600, across the three Sheet endpoints.
       parameters:
       - description: Calendar year; requires month
         in: query
@@ -183,6 +183,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
         "429":
           description: Too Many Requests
           schema:
@@ -191,14 +195,20 @@ paths:
           description: Bad Gateway
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
-      summary: List public spreadsheet bookings
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+      security:
+      - CookieAuth: []
+      summary: List spreadsheet bookings
       tags:
       - sheet-bookings
   /api/v1/admin/sheet-bookings/calendar:
     get:
-      description: Conflicted counts active bookings overlapping the same room and
-        daily time window. No authentication is required. Shares the per-IP Sheet
-        endpoint limit.
+      description: Requires an authenticated active user of any role. Conflicted counts
+        active bookings overlapping the same room and daily time window. Shares the
+        per-IP Sheet endpoint limit.
       parameters:
       - description: Calendar year
         in: query
@@ -225,6 +235,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
         "429":
           description: Too Many Requests
           schema:
@@ -233,14 +247,20 @@ paths:
           description: Bad Gateway
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
-      summary: Public monthly spreadsheet booking calendar
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+      security:
+      - CookieAuth: []
+      summary: Monthly spreadsheet booking calendar
       tags:
       - sheet-bookings
   /api/v1/admin/sheet-bookings/weekly:
     get:
-      description: Uses the 60-second cached Sheet snapshot without authentication.
-        Dates are inclusive and use Bangkok time. Shares the per-IP Sheet endpoint
-        limit.
+      description: Requires an authenticated active user of any role. Uses the 60-second
+        cached Sheet snapshot. Dates are inclusive and use Bangkok time. Shares the
+        per-IP Sheet endpoint limit.
       parameters:
       - description: Start date YYYY-MM-DD; defaults to today in Bangkok
         in: query
@@ -265,6 +285,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
         "429":
           description: Too Many Requests
           schema:
@@ -273,7 +297,13 @@ paths:
           description: Bad Gateway
           schema:
             $ref: '#/definitions/sheetbooking.errorResponse'
-      summary: Public weekly spreadsheet room schedule
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/sheetbooking.errorResponse'
+      security:
+      - CookieAuth: []
+      summary: Weekly spreadsheet room schedule
       tags:
       - sheet-bookings
   /api/v1/auth/logout:
@@ -301,8 +331,8 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/auth.errorResponse'
-        "500":
-          description: Internal Server Error
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/auth.errorResponse'
       summary: Get current user
@@ -382,4 +412,9 @@ paths:
       summary: Check readiness
       tags:
       - health
+securityDefinitions:
+  CookieAuth:
+    in: header
+    name: Cookie
+    type: apiKey
 swagger: "2.0"

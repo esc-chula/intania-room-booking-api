@@ -46,9 +46,13 @@ func NewRouter(config RouterConfig) http.Handler {
 	}
 	if config.SheetBookings != nil {
 		limitSheets := requestmiddleware.SheetRateLimit()
-		r.With(limitSheets).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
-		r.With(limitSheets).Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
-		r.With(limitSheets).Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
+		authenticate := authenticationUnavailable
+		if config.Auth != nil {
+			authenticate = config.Auth.Authenticate
+		}
+		r.With(limitSheets, authenticate).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
+		r.With(limitSheets, authenticate).Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
+		r.With(limitSheets, authenticate).Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
 	}
 	if config.GoogleAuth != nil {
 		r.Get("/auth/google/login", config.GoogleAuth.Login)
@@ -61,4 +65,13 @@ func NewRouter(config RouterConfig) http.Handler {
 		r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
 	}
 	return r
+}
+
+func authenticationUnavailable(_ http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"authentication unavailable"}`))
+	})
 }

@@ -59,6 +59,26 @@ func (r *authRepository) FindUserByID(context.Context, string) (user.User, error
 	return r.current, nil
 }
 
+func sheetAuthentication(t *testing.T, logger *slog.Logger, role string) (*httpauth.Handler, string) {
+	t.Helper()
+	tokens, err := token.New("test-only-jwt-secret-at-least-32-bytes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := user.User{ID: "11111111-1111-4111-8111-111111111111", Email: "6500000021@student.chula.ac.th", Role: role, Active: true}
+	jwt, err := tokens.Issue(u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httpauth.New(auth.New(&authRepository{current: u}, tokens, "student.chula.ac.th", "21"), logger, false, http.SameSiteLaxMode), jwt
+}
+
+func authenticatedRequest(method, path, jwt string) *http.Request {
+	request := httptest.NewRequest(method, path, nil)
+	request.AddCookie(&http.Cookie{Name: "room_auth", Value: jwt})
+	return request
+}
+
 func TestRoutesAndSwagger(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	sheets := httpsheetbooking.New(sheetService{}, logger)
@@ -80,18 +100,19 @@ func TestRoutesAndSwagger(t *testing.T) {
 					want = http.StatusNotFound
 				}
 				if strings.HasPrefix(path, "/api/v1/admin/sheet-bookings") {
-					want = http.StatusOK
+					want = http.StatusServiceUnavailable
 				}
 				if w.Code != want {
 					t.Errorf("GET %s = %d, want %d", path, w.Code, want)
 				}
-				if env == "production" && path == "/api/v1/admin/sheet-bookings" && w.Code != http.StatusOK {
-					t.Fatalf("public sheet endpoint without auth: %d %s", w.Code, w.Body.String())
+				if path == "/api/v1/admin/sheet-bookings" && w.Code == http.StatusServiceUnavailable && w.Body.String() != `{"error":"authentication unavailable"}` {
+					t.Fatalf("unavailable authentication response: %d %s", w.Code, w.Body.String())
 				}
 				if path == "/swagger/doc.json" && want == http.StatusOK {
 					var spec struct {
-						BasePath string                    `json:"basePath"`
-						Paths    map[string]map[string]any `json:"paths"`
+						BasePath            string                       `json:"basePath"`
+						Paths               map[string]map[string]any    `json:"paths"`
+						SecurityDefinitions map[string]map[string]string `json:"securityDefinitions"`
 					}
 					if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
 						t.Fatal(err)
@@ -102,6 +123,20 @@ func TestRoutesAndSwagger(t *testing.T) {
 					for _, documented := range []string{"/health", "/ready", "/api/v1/auth/me", "/api/v1/admin/sheet-bookings", "/api/v1/admin/sheet-bookings/calendar", "/api/v1/admin/sheet-bookings/weekly", "/auth/google/url", "/auth/google/login", "/auth/google/callback"} {
 						if spec.Paths[documented]["get"] == nil {
 							t.Fatalf("missing GET %s documentation", documented)
+						}
+					}
+					cookieAuth := spec.SecurityDefinitions["CookieAuth"]
+					if cookieAuth["type"] != "apiKey" || cookieAuth["in"] != "header" || cookieAuth["name"] != "Cookie" {
+						t.Fatalf("cookie auth definition: %+v", cookieAuth)
+					}
+					for _, path := range []string{"/api/v1/admin/sheet-bookings", "/api/v1/admin/sheet-bookings/calendar", "/api/v1/admin/sheet-bookings/weekly"} {
+						operation, ok := spec.Paths[path]["get"].(map[string]any)
+						if !ok || operation["security"] == nil {
+							t.Fatalf("missing cookie security for %s", path)
+						}
+						responses, ok := operation["responses"].(map[string]any)
+						if !ok || responses["401"] == nil || responses["503"] == nil {
+							t.Fatalf("missing auth responses for %s: %+v", path, responses)
 						}
 					}
 					if spec.Paths["/api/v1/auth/logout"]["post"] == nil {
@@ -118,11 +153,54 @@ func TestRoutesAndSwagger(t *testing.T) {
 	}
 }
 
+func TestSheetRoutesRequireAuthenticationForEveryRole(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	sheets := httpsheetbooking.New(sheetService{}, logger)
+	paths := []string{
+		"/api/v1/admin/sheet-bookings",
+		"/api/v1/admin/sheet-bookings/calendar?year=2026&month=11",
+		"/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02",
+	}
+	authHandler, jwt := sheetAuthentication(t, logger, user.RoleUserA)
+	router := NewRouter(RouterConfig{Auth: authHandler, Health: health.New(pinger{}, logger), SheetBookings: sheets, Logger: logger})
+	for _, path := range paths {
+		for _, request := range []*http.Request{
+			httptest.NewRequest(http.MethodGet, path, nil),
+			authenticatedRequest(http.MethodGet, path, "invalid"),
+		} {
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, request)
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("GET %s without valid auth = %d, want 401", path, w.Code)
+			}
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, authenticatedRequest(http.MethodGet, path, jwt))
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s with valid auth = %d, want 200", path, w.Code)
+		}
+	}
+	for _, role := range []string{user.RoleUserA, user.RoleUserB, user.RoleOS, user.RoleAdmin} {
+		t.Run(role, func(t *testing.T) {
+			authHandler, jwt := sheetAuthentication(t, logger, role)
+			router := NewRouter(RouterConfig{Auth: authHandler, Health: health.New(pinger{}, logger), SheetBookings: sheets, Logger: logger})
+			for _, path := range paths {
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, authenticatedRequest(http.MethodGet, path, jwt))
+				if w.Code != http.StatusOK {
+					t.Errorf("GET %s as %s = %d, want 200", path, role, w.Code)
+				}
+			}
+		})
+	}
+}
+
 func TestSheetRateLimitSharedAcrossRoutes(t *testing.T) {
 	t.Setenv("K_SERVICE", "")
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	authHandler, jwt := sheetAuthentication(t, logger, user.RoleUserA)
 	router := NewRouter(RouterConfig{
-		Health: health.New(pinger{}, logger), SheetBookings: httpsheetbooking.New(sheetService{}, logger), Logger: logger,
+		Auth: authHandler, Health: health.New(pinger{}, logger), SheetBookings: httpsheetbooking.New(sheetService{}, logger), Logger: logger,
 	})
 	paths := []string{
 		"/api/v1/admin/sheet-bookings",
@@ -130,7 +208,7 @@ func TestSheetRateLimitSharedAcrossRoutes(t *testing.T) {
 		"/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02",
 	}
 	request := func(path, ip string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r := authenticatedRequest(http.MethodGet, path, jwt)
 		r.RemoteAddr = ip + ":1234"
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, r)
@@ -156,8 +234,9 @@ func TestSheetRateLimitSharedAcrossRoutes(t *testing.T) {
 func TestSheetRateLimitAllowsCampusBurst(t *testing.T) {
 	t.Setenv("K_SERVICE", "")
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	authHandler, jwt := sheetAuthentication(t, logger, user.RoleUserA)
 	router := NewRouter(RouterConfig{
-		Health: health.New(pinger{}, logger), SheetBookings: httpsheetbooking.New(sheetService{}, logger), Logger: logger,
+		Auth: authHandler, Health: health.New(pinger{}, logger), SheetBookings: httpsheetbooking.New(sheetService{}, logger), Logger: logger,
 	})
 	paths := []string{
 		"/api/v1/admin/sheet-bookings",
@@ -171,7 +250,7 @@ func TestSheetRateLimitAllowsCampusBurst(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for _, path := range paths {
-				r := httptest.NewRequest(http.MethodGet, path, nil)
+				r := authenticatedRequest(http.MethodGet, path, jwt)
 				r.RemoteAddr = "203.0.113.10:1234" // One campus NAT IP.
 				w := httptest.NewRecorder()
 				router.ServeHTTP(w, r)

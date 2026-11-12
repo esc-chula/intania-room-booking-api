@@ -1,4 +1,4 @@
-# Personal GCP test
+# GCP test
 
 This stack deploys the existing read-only Sheets API to Cloud Run. The API is
 public and can return requester names and booking details. Use this only with
@@ -190,7 +190,7 @@ workflows do not create their own credentials or the state bucket. Protect
 
 Configure repository variables:
 
-| Variable | Personal test value |
+| Variable | Test value |
 | --- | --- |
 | `GCP_PROJECT_ID` | `intania-room-booking-test` |
 | `GCP_REGION` | `asia-southeast1` |

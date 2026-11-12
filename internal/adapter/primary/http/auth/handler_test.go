@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ type stubService struct {
 	user        user.User
 	token       string
 	result      domainauth.Result
+	authErr     error
 	signInCalls int
 }
 
@@ -26,7 +28,21 @@ func (s *stubService) SignInGoogle(context.Context, domainauth.GoogleIdentity) (
 
 func (s *stubService) Authenticate(_ context.Context, token string) (user.User, error) {
 	s.token = token
-	return s.user, nil
+	return s.user, s.authErr
+}
+
+func TestAuthenticateFailsClosedWhenServiceIsUnavailable(t *testing.T) {
+	service := &stubService{authErr: errors.New("database unavailable")}
+	handler := New(service, slog.New(slog.NewJSONHandler(io.Discard, nil)), false, http.SameSiteLaxMode)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/sheet-bookings", nil)
+	request.AddCookie(&http.Cookie{Name: authCookieName, Value: "signed-token"})
+	response := httptest.NewRecorder()
+	handler.Authenticate(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("unavailable authentication reached handler")
+	})).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"error\":\"authentication unavailable\"}\n" {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
 }
 
 func TestHandlerAcceptsServicePort(t *testing.T) {
