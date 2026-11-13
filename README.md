@@ -68,7 +68,7 @@ curl --cookie 'room_auth=YOUR_AUTH_COOKIE' 'http://localhost:8080/api/v1/admin/s
 
 `GET /api/v1/admin/sheet-bookings/weekly` returns `{ "start_date": "...", "end_date": "...", "rooms": [...] }`, including rooms without bookings. Optional `start_date` and `end_date` use `YYYY-MM-DD` and cover at most seven days; the default is today through six days later in Bangkok. `end_date` requires `start_date`. Optional `building` filters the rooms.
 
-The three Sheet endpoints share a per-IP limit of 600 requests per minute with a burst of 600 on each API instance. Excess requests return HTTP 429 with `Retry-After: 1`. The in-memory limit resets when an instance restarts.
+The three Sheet endpoints share a per-authenticated-user limit of 600 requests per minute with a burst of 600 on each API instance. Users on the same Wi-Fi network have separate quotas. Excess requests return HTTP 429 with `Retry-After: 1`. The in-memory limit resets when an instance restarts.
 
 ```sh
 curl --cookie 'room_auth=YOUR_AUTH_COOKIE' 'http://localhost:8080/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02&end_date=2026-11-08&building=ENG%20100'

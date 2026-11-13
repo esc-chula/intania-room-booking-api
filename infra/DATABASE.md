@@ -27,11 +27,17 @@ In GitHub environment **infra-apply**, add these environment secrets:
 
 In GitHub environment **database-production**, add:
 
-- `DATABASE_ADMIN_URL`: postgres administrator URL pointing to `127.0.0.1:5433`, database `room_booking`, with `sslmode=disable`. The workflow opens an authenticated encrypted proxy on this port. Percent-encode special characters in the password.
+- `DATABASE_ADMIN_URL`: `postgresql://postgres:ENCODED_POSTGRES_PASSWORD@127.0.0.1:5433/room_booking?sslmode=disable`. The workflow opens an authenticated encrypted Cloud SQL Auth Proxy on the GitHub runner's localhost port 5433. Percent-encode special characters in the password. This URL is different from `RUNTIME_DATABASE_URL`, which uses the Cloud Run socket.
 - `BOOTSTRAP_ADMIN_EMAIL`: eligible student email ending in `21` for initial administrator creation.
 - `OS_STUDENT_IDS`: comma-separated student IDs ending in `21`; update it before running bootstrap OS when membership changes.
 
-Never put these values into Terraform variables, manually typed commands, logs, or repository variables. Goose receives the database URL as an argument on the isolated GitHub runner. Set or reset the postgres and `room_app` passwords in the Cloud SQL console. Store credentials in the organization's approved password manager.
+Never put these values into Terraform variables, manually typed commands, logs, or repository variables. Goose receives the database URL as an argument on the isolated GitHub runner. Set the `postgres` password in the Cloud SQL console. To create a restricted `room_app` entirely in the browser, open Cloud SQL Studio as `postgres` and run this in the `room_booking` database:
+
+```sql
+CREATE ROLE room_app_runtime NOLOGIN;
+```
+
+Then, on the instance's Users page, add a built-in user named `room_app` with a separate password. In the Database roles picker, remove `cloudsqlsuperuser` and select `room_app_runtime`. Cloud SQL grants `cloudsqlsuperuser` automatically if a built-in user is created with no custom role. If the custom role is not available in the picker, stop before adding the user. Store both passwords in the organization's approved password manager. If `room_app` already exists, inspect its memberships and privileges before changing it.
 
 Apply the **bootstrap** Terraform stack using its existing local state and correct university project and bucket values. Review its plan: it adds the `github-database` and `github-secrets` service accounts, federation mappings, Cloud SQL Client for the database and API identities, and Cloud SQL/Secret Manager administration for the existing apply identity. The account applying bootstrap must have the necessary IAM permissions. The API's Cloud SQL Client grant lives in bootstrap because the infrastructure workflow cannot edit project IAM. If an earlier infrastructure apply failed at `google_project_iam_member.api_cloudsql`, apply bootstrap again after updating the code, then rerun the infrastructure workflow; keep the existing Terraform state and Cloud SQL instance. Do not create service-account keys. Preserve the existing university state; do not use the personal test example state.
 
@@ -46,11 +52,11 @@ terraform -chdir=infra/bootstrap apply /tmp/room-booking-bootstrap.tfplan
 
 With `DB_RUNTIME_ENABLED=false`, run **Terraform infrastructure**, review the plan, and approve its `infra-apply` job. This creates the database, empty Secret Manager secrets and IAM bindings while preserving the existing Cloud Run image. Do not omit the existing image or state variables. If the project is new, first follow the registry and state bootstrap in `infra/README.md`, then complete the bootstrap identities before this apply.
 
-In Cloud SQL, set the `postgres` user's password and create the `room_app` built-in database user with a separate password. Add the GitHub secrets described above, then run **Sync runtime secrets** and approve it. Record the three numeric version IDs from its job summary and set `RUNTIME_SECRET_VERSIONS` to those values. This workflow adds new versions every time it runs; existing Cloud Run revisions remain pinned to their old versions until the infrastructure is applied again.
+In Cloud SQL, set the `postgres` user's password, then create `room_app` with a separate password using Cloud SQL Studio and the Users page as described above. Add the GitHub secrets described above, then run **Sync runtime secrets** and approve it. Record the three numeric version IDs from its job summary and set `RUNTIME_SECRET_VERSIONS` to those values. This workflow adds new versions every time it runs; existing Cloud Run revisions remain pinned to their old versions until the infrastructure is applied again.
 
 ## 3. Migrate, bootstrap, and grant runtime access
 
-Run **migrate-up**, then **bootstrap-admin** and **bootstrap-os**, approving each `database-production` job. They connect as the postgres administrator using a temporary proxy. Admin bootstrap creates an administrator only when one does not already exist; an empty OS list adds nobody. The workflows use the current `main` commit and are serialized with releases and infrastructure changes.
+Run **migrate-up**, then **bootstrap-admin** and **bootstrap-os**, approving each `database-production` job. They connect as the postgres administrator using a temporary proxy. Admin bootstrap creates an administrator only when one does not already exist; an empty OS list adds nobody. The workflows use the current `main` commit and are serialized with releases and infrastructure changes. Run **migrate-up** again before releasing API code that uses a newer migration, including the temporary OAuth state table.
 
 Using an authorized local Cloud SQL Auth Proxy and `psql`, connect as `postgres` to `room_booking` and grant the app user access. Run this after the initial migration and before enabling Cloud Run:
 
@@ -71,11 +77,11 @@ Future migrations must run as the same `postgres` role for these default privile
 
 Set repository variable `DB_RUNTIME_ENABLED=true`, verify all OAuth variables and numeric secret versions, and run **Terraform infrastructure** again. Review the plan and approve it. The service receives the socket, IAM permissions, `DATABASE_URL`, `JWT_SECRET`, OAuth settings, and pool limits. Existing instance revisions may continue serving during deployment. Then run **Release** with the SHA of a successful `main` CI build. Release rejects infrastructure changes, so complete the infrastructure apply first.
 
-The current Cloud Run invoker policy permits the named tester and frontend service account. Browser OAuth callbacks require an invocation path that reaches the API; confirm the frontend/API architecture before relying on browser login. The database setup does not change that policy.
+Cloud Run permits public invocation so the browser can reach `/auth/google/login` and `/auth/google/callback`. The API still requires its own auth cookie on the three Sheet routes. The named tester and frontend service-account invoker grants remain for a possible private rollback; they do not restrict public requests while the Invoker IAM check is disabled. Verify `GOOGLE_REDIRECT_URL` exactly matches the HTTPS API callback URI registered with Google. The frontend must use that callback's API origin for login, `/api/v1/auth/me`, and the Sheet routes so the host-only auth cookie is sent. The handler redirects login requests from Cloud Run's alternate hostname to the callback host before setting the temporary cookie. If code and Terraform are merged together, run **migrate-up**, **Terraform infrastructure**, then **Release**; the previous image is briefly public until Release finishes. To avoid that interval, merge and release the migrated OAuth-state code while Cloud Run is private, then merge and apply the public Terraform change separately. The Release workflow rejects pending infrastructure changes.
 
 ## 5. Verify and operate
 
-- Check the Cloud Run revision and call `/ready` with an authorized Cloud Run identity token; check OAuth login, `/api/v1/auth/me`, and logout through the intended frontend. A successful `/ready` verifies the configured database ping, not OAuth.
+- Check the Cloud Run revision and call `/health` and `/ready` anonymously. The Terraform workflow also checks public access after apply. Verify each Sheet route returns 401 without a cookie; check OAuth login, `/api/v1/auth/me`, and logout through the intended frontend. A successful `/ready` verifies the configured database ping, not OAuth.
 - In Cloud SQL, confirm successful automated backups and point-in-time recovery. Restore a backup to a **new temporary instance**, validate the schema and users, then delete only that temporary instance. See https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/restore
 - Set billing and database resource alerts, and assign two university operators access to the project and recovery documentation. Budget alerts do not stop charges.
 - For secret rotation, update the `infra-apply` GitHub secrets, run **Sync runtime secrets**, update all three version IDs in `RUNTIME_SECRET_VERSIONS`, and apply infrastructure to create a new Cloud Run revision. Coordinate database password changes with the deployment; changing a user's password before the new revision is live can interrupt connections. JWT rotation invalidates existing cookies.

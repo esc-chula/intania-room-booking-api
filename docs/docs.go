@@ -22,7 +22,7 @@ const docTemplate = `{
                         "CookieAuth": []
                     }
                 ],
-                "description": "Requires an authenticated active user of any role. Reads a 60-second cached Sheet snapshot and shares a per-IP limit of 600 requests per minute, with a burst of 600, across the three Sheet endpoints.",
+                "description": "Requires an authenticated active user of any role. Reads a 60-second cached Sheet snapshot and shares a per-user limit of 600 requests per minute, with a burst of 600, across the three Sheet endpoints.",
                 "produces": [
                     "application/json"
                 ],
@@ -115,7 +115,7 @@ const docTemplate = `{
                         "CookieAuth": []
                     }
                 ],
-                "description": "Requires an authenticated active user of any role. Conflicted counts active bookings overlapping the same room and daily time window. Shares the per-IP Sheet endpoint limit.",
+                "description": "Requires an authenticated active user of any role. Conflicted counts active bookings overlapping the same room and daily time window. Shares the per-user Sheet endpoint limit.",
                 "produces": [
                     "application/json"
                 ],
@@ -192,7 +192,7 @@ const docTemplate = `{
                         "CookieAuth": []
                     }
                 ],
-                "description": "Requires an authenticated active user of any role. Uses the 60-second cached Sheet snapshot. Dates are inclusive and use Bangkok time. Shares the per-IP Sheet endpoint limit.",
+                "description": "Requires an authenticated active user of any role. Uses the 60-second cached Sheet snapshot. Dates are inclusive and use Bangkok time. Shares the per-user Sheet endpoint limit.",
                 "produces": [
                     "application/json"
                 ],
@@ -322,7 +322,7 @@ const docTemplate = `{
         },
         "/auth/google/login": {
             "get": {
-                "description": "Sets a temporary state cookie and redirects to Google.",
+                "description": "Redirects to the configured API host when needed, then sets a temporary state cookie and redirects to Google.",
                 "tags": [
                     "auth"
                 ],

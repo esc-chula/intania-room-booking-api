@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,12 +50,49 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+type fakeOAuthStates struct {
+	mu         sync.Mutex
+	states     map[string]oauthTransaction
+	saveErr    error
+	consumeErr error
+}
+
+type oauthTransaction struct {
+	verifier string
+	expires  time.Time
+}
+
+func (s *fakeOAuthStates) Save(_ context.Context, hash []byte, verifier string, expires time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.saveErr != nil {
+		return s.saveErr
+	}
+	s.states[string(hash)] = oauthTransaction{verifier: verifier, expires: expires}
+	return nil
+}
+
+func (s *fakeOAuthStates) Consume(_ context.Context, hash []byte) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.consumeErr != nil {
+		return "", false, s.consumeErr
+	}
+	transaction, ok := s.states[string(hash)]
+	delete(s.states, string(hash))
+	if !ok || !time.Now().Before(transaction.expires) {
+		return "", false, nil
+	}
+	return transaction.verifier, true, nil
+}
+
 func testGoogleHandler(t *testing.T) (*GoogleHandler, *googleRepository) {
 	t.Helper()
 	repo := &googleRepository{u: user.User{ID: "user-id", Email: "6500000021@student.chula.ac.th", Role: user.RoleUserA, Active: true}}
 	h := &GoogleHandler{
-		service: domainauth.New(repo, googleTokens{}, "student.chula.ac.th", "21"),
-		logger:  slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		service:    domainauth.New(repo, googleTokens{}, "student.chula.ac.th", "21"),
+		stateStore: &fakeOAuthStates{states: make(map[string]oauthTransaction)},
+		logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		config: oauth2.Config{
 			ClientID: "client-id", ClientSecret: "client-secret",
 			RedirectURL: "http://localhost:8080/auth/google/callback",
@@ -62,7 +100,6 @@ func testGoogleHandler(t *testing.T) (*GoogleHandler, *googleRepository) {
 			Endpoint:    oauth2.Endpoint{AuthURL: "https://accounts.google.com/o/oauth2/v2/auth", TokenURL: "https://oauth.test/token", AuthStyle: oauth2.AuthStyleInParams},
 		},
 		domain: "student.chula.ac.th", frontendURL: "http://localhost:3000", sameSite: http.SameSiteLaxMode,
-		states: make(map[string]oauthTransaction),
 	}
 	h.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if err := r.ParseForm(); err != nil || r.Form.Get("code_verifier") == "" {
@@ -99,7 +136,7 @@ func startGoogleFlow(t *testing.T, h *GoogleHandler, login bool) (string, *http.
 		path = "/auth/google/login"
 	}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, path, nil)
+	r := httptest.NewRequest(http.MethodGet, "http://localhost:8080"+path, nil)
 	if login {
 		h.Login(w, r)
 	} else {
@@ -177,6 +214,53 @@ func TestGoogleFlowSuccessAndReplay(t *testing.T) {
 		if replay := callback(h, state, "valid-code", "", cookie); replay.Code != http.StatusFound || !strings.Contains(replay.Header().Get("Location"), "invalid_callback") || len(replay.Result().Cookies()) != 1 {
 			t.Fatalf("replay = %d", replay.Code)
 		}
+	}
+}
+
+func TestGoogleCallbackAfterHandlerReplacement(t *testing.T) {
+	first, _ := testGoogleHandler(t)
+	state, cookie := startGoogleFlow(t, first, true)
+	second, repo := testGoogleHandler(t)
+	second.stateStore = first.stateStore
+	w := callback(second, state, "valid-code", "", cookie)
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "http://localhost:3000" || repo.calls != 1 {
+		t.Fatalf("callback on replacement handler: %d %s", w.Code, w.Header().Get("Location"))
+	}
+}
+
+func TestGoogleLoginUsesCallbackHost(t *testing.T) {
+	h, _ := testGoogleHandler(t)
+	h.config.RedirectURL = "https://api.example.com/auth/google/callback"
+	w := httptest.NewRecorder()
+	h.Login(w, httptest.NewRequest(http.MethodGet, "https://alternate.example/auth/google/login", nil))
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "https://api.example.com/auth/google/login" || len(w.Result().Cookies()) != 0 {
+		t.Fatalf("canonical login redirect: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	if len(h.stateStore.(*fakeOAuthStates).states) != 0 {
+		t.Fatal("state created on alternate host")
+	}
+	w = httptest.NewRecorder()
+	h.Login(w, httptest.NewRequest(http.MethodGet, "https://api.example.com/auth/google/login", nil))
+	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), "https://accounts.google.com/") || len(w.Result().Cookies()) != 1 {
+		t.Fatalf("canonical host did not start OAuth: %d %s", w.Code, w.Header().Get("Location"))
+	}
+}
+
+func TestGoogleStateStoreFailures(t *testing.T) {
+	h, _ := testGoogleHandler(t)
+	store := h.stateStore.(*fakeOAuthStates)
+	store.saveErr = errors.New("database unavailable")
+	w := httptest.NewRecorder()
+	h.Login(w, httptest.NewRequest(http.MethodGet, "http://localhost:8080/auth/google/login", nil))
+	if w.Code != http.StatusServiceUnavailable || len(w.Result().Cookies()) != 0 {
+		t.Fatalf("state save failure: %d %+v", w.Code, w.Result().Cookies())
+	}
+	store.saveErr = nil
+	state, cookie := startGoogleFlow(t, h, true)
+	store.consumeErr = errors.New("database unavailable")
+	w = callback(h, state, "valid-code", "", cookie)
+	if w.Code != http.StatusFound || !strings.Contains(w.Header().Get("Location"), "auth_error=server_error") || len(w.Result().Cookies()) != 1 {
+		t.Fatalf("state consume failure: %d %s", w.Code, w.Header().Get("Location"))
 	}
 }
 
@@ -267,7 +351,8 @@ func TestGoogleCallbackFailures(t *testing.T) {
 		{"wrong state", func(_ *GoogleHandler, _ string, _ **http.Cookie, state, _ *string) { *state = "wrong" }, 400},
 		{"missing cookie", func(_ *GoogleHandler, _ string, cookie **http.Cookie, _, _ *string) { *cookie = nil }, 400},
 		{"expired state", func(h *GoogleHandler, state string, _ **http.Cookie, _, _ *string) {
-			h.states[state] = oauthTransaction{verifier: "verifier", expires: time.Now().Add(-time.Second)}
+			store := h.stateStore.(*fakeOAuthStates)
+			store.states[string(hashState(state))] = oauthTransaction{verifier: "verifier", expires: time.Now().Add(-time.Second)}
 		}, 400},
 		{"missing code", func(_ *GoogleHandler, _ string, _ **http.Cookie, _, code *string) { *code = "" }, 400},
 		{"failed exchange", func(h *GoogleHandler, _ string, _ **http.Cookie, _, _ *string) {

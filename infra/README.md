@@ -2,10 +2,10 @@
 
 For the university Cloud SQL setup and production operations, see [DATABASE.md](DATABASE.md).
 
-This stack deploys the existing read-only Sheets API to Cloud Run. The API is
-public and can return requester names and booking details. Use this only with
-data you are authorized to expose. It does not implement authentication,
-booking writes, approvals, conflict handling, or the rest of the EPIC.
+This stack deploys the read-only Sheets API to Cloud Run with public invocation
+for browser OAuth. The three Sheet routes still require an active user's auth
+cookie; without database-backed authentication, they return 503. The API does
+not implement native booking writes, approvals, or conflict handling.
 
 The examples explicitly target `intania-room-booking-test`. Do not reuse its
 state for the organization; inspect that project and agree on its own state and
@@ -124,7 +124,7 @@ than bypassing it.
    one, obtain the digest from Artifact Registry before continuing. Keep the
    digest available for subsequent plans and destruction.
 
-4. Deploy the image and public invocation binding:
+4. Deploy the image with public invocation:
 
    ```sh
    terraform -chdir=infra plan -var="image_url=$IMAGE_URL"
@@ -132,7 +132,7 @@ than bypassing it.
    export SERVICE_URL="$(terraform -chdir=infra output -raw service_url)"
    curl -fsS "$SERVICE_URL/health"
    curl -fsS "$SERVICE_URL/ready"
-   curl -fsS "$SERVICE_URL/api/v1/admin/sheet-bookings"
+   curl -i "$SERVICE_URL/api/v1/admin/sheet-bookings" # 503 until auth is configured; then 401 without a cookie
    gcloud run services describe room-booking-api --region "$REGION" --project "$PROJECT_ID"
    gcloud run services get-iam-policy room-booking-api --region "$REGION" --project "$PROJECT_ID"
    gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="room-booking-api"' --project "$PROJECT_ID" --limit 20
@@ -157,7 +157,7 @@ terraform -chdir=infra/bootstrap destroy -target=google_iam_workload_identity_po
 ```
 
 Then destroy the main stack. It deletes
-the Cloud Run service, its public binding, the runtime identity, the repository,
+the Cloud Run service, its public access setting, the runtime identity, the repository,
 and its pushed images. APIs remain enabled. Keep the bootstrap local state until
 the final step succeeds.
 
@@ -243,8 +243,8 @@ summary, then approve the protected apply job. It preserves the image in state,
 including an empty image before the first release. A stale saved plan fails; run
 the workflow again and review the new plan. These workflows share a concurrency
 group, but local Terraform commands can still overlap: use the same GCS state
-and never disable locking. Cloud Run remains public and Sheets data may be
-exposed as described above. Test each workflow in the personal project before
+and never disable locking. Cloud Run remains public; Sheet responses require
+an active user's auth cookie. Test each workflow in the personal project before
 adapting settings and separate state to the organization project.
 
 ## Bootstrap quick start

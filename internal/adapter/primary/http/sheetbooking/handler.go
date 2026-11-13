@@ -27,7 +27,7 @@ func New(service domainbooking.Service, logger *slog.Logger) *Handler {
 
 // List returns paginated booking rows from the OS spreadsheet.
 // @Summary List spreadsheet bookings
-// @Description Requires an authenticated active user of any role. Reads a 60-second cached Sheet snapshot and shares a per-IP limit of 600 requests per minute, with a burst of 600, across the three Sheet endpoints.
+// @Description Requires an authenticated active user of any role. Reads a 60-second cached Sheet snapshot and shares a per-user limit of 600 requests per minute, with a burst of 600, across the three Sheet endpoints.
 // @Tags sheet-bookings
 // @Produce json
 // @Security CookieAuth
@@ -61,7 +61,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 // Calendar returns daily booking status counts for a month.
 // @Summary Monthly spreadsheet booking calendar
-// @Description Requires an authenticated active user of any role. Conflicted counts active bookings overlapping the same room and daily time window. Shares the per-IP Sheet endpoint limit.
+// @Description Requires an authenticated active user of any role. Conflicted counts active bookings overlapping the same room and daily time window. Shares the per-user Sheet endpoint limit.
 // @Tags sheet-bookings
 // @Produce json
 // @Security CookieAuth
@@ -92,7 +92,7 @@ func (h *Handler) Calendar(w http.ResponseWriter, r *http.Request) {
 
 // Weekly returns sheet bookings grouped under every catalog room in a date range.
 // @Summary Weekly spreadsheet room schedule
-// @Description Requires an authenticated active user of any role. Uses the 60-second cached Sheet snapshot. Dates are inclusive and use Bangkok time. Shares the per-IP Sheet endpoint limit.
+// @Description Requires an authenticated active user of any role. Uses the 60-second cached Sheet snapshot. Dates are inclusive and use Bangkok time. Shares the per-user Sheet endpoint limit.
 // @Tags sheet-bookings
 // @Produce json
 // @Security CookieAuth

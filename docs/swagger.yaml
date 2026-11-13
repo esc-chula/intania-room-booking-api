@@ -144,7 +144,7 @@ paths:
   /api/v1/admin/sheet-bookings:
     get:
       description: Requires an authenticated active user of any role. Reads a 60-second
-        cached Sheet snapshot and shares a per-IP limit of 600 requests per minute,
+        cached Sheet snapshot and shares a per-user limit of 600 requests per minute,
         with a burst of 600, across the three Sheet endpoints.
       parameters:
       - description: Calendar year; requires month
@@ -208,7 +208,7 @@ paths:
     get:
       description: Requires an authenticated active user of any role. Conflicted counts
         active bookings overlapping the same room and daily time window. Shares the
-        per-IP Sheet endpoint limit.
+        per-user Sheet endpoint limit.
       parameters:
       - description: Calendar year
         in: query
@@ -260,7 +260,7 @@ paths:
     get:
       description: Requires an authenticated active user of any role. Uses the 60-second
         cached Sheet snapshot. Dates are inclusive and use Bangkok time. Shares the
-        per-IP Sheet endpoint limit.
+        per-user Sheet endpoint limit.
       parameters:
       - description: Start date YYYY-MM-DD; defaults to today in Bangkok
         in: query
@@ -350,7 +350,8 @@ paths:
       - auth
   /auth/google/login:
     get:
-      description: Sets a temporary state cookie and redirects to Google.
+      description: Redirects to the configured API host when needed, then sets a temporary
+        state cookie and redirects to Google.
       responses:
         "302":
           description: Found

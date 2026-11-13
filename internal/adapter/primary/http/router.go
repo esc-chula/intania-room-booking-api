@@ -1,6 +1,7 @@
 package httpadapter
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -45,14 +46,17 @@ func NewRouter(config RouterConfig) http.Handler {
 		})
 	}
 	if config.SheetBookings != nil {
-		limitSheets := requestmiddleware.SheetRateLimit()
+		limitSheets := requestmiddleware.SheetRateLimit(func(ctx context.Context) (string, bool) {
+			u, ok := auth.CurrentUser(ctx)
+			return u.ID, ok
+		})
 		authenticate := authenticationUnavailable
 		if config.Auth != nil {
 			authenticate = config.Auth.Authenticate
 		}
-		r.With(limitSheets, authenticate).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
-		r.With(limitSheets, authenticate).Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
-		r.With(limitSheets, authenticate).Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
+		r.With(authenticate, limitSheets).Get("/api/v1/admin/sheet-bookings", config.SheetBookings.List)
+		r.With(authenticate, limitSheets).Get("/api/v1/admin/sheet-bookings/calendar", config.SheetBookings.Calendar)
+		r.With(authenticate, limitSheets).Get("/api/v1/admin/sheet-bookings/weekly", config.SheetBookings.Weekly)
 	}
 	if config.GoogleAuth != nil {
 		r.Get("/auth/google/login", config.GoogleAuth.Login)

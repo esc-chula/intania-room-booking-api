@@ -74,7 +74,7 @@ func run() error {
 		authService := auth.New(postgres.NewUsers(pool), tokens, c.GoogleAllowedDomain, c.GoogleAllowedSuffix)
 		authHandler = httpauth.New(authService, logger, strings.HasPrefix(c.GoogleRedirectURL, "https://"), c.AuthCookieSameSite)
 		if c.GoogleClientID != "" {
-			googleAuth, err = httpauth.NewGoogle(ctx, authService, logger, c.GoogleClientID, c.GoogleClientSecret, c.GoogleRedirectURL, c.FrontendURL, c.GoogleAllowedDomain, c.AuthCookieSameSite)
+			googleAuth, err = httpauth.NewGoogle(ctx, authService, postgres.NewOAuthStates(pool), logger, c.GoogleClientID, c.GoogleClientSecret, c.GoogleRedirectURL, c.FrontendURL, c.GoogleAllowedDomain, c.AuthCookieSameSite)
 			if err != nil {
 				return err
 			}

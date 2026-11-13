@@ -55,6 +55,8 @@ jobs:
     env:
       STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
       STATE_PREFIX: ${{ vars.TF_STATE_PREFIX }}
+      DB_RUNTIME_ENABLED: ${{ vars.DB_RUNTIME_ENABLED || 'false' }}
+      GOOGLE_REDIRECT_URL: ${{ vars.GOOGLE_REDIRECT_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v3
@@ -71,3 +73,28 @@ jobs:
           path: ${{ runner.temp }}
       - run: terraform -chdir=infra init -input=false -backend-config="bucket=$STATE_BUCKET" -backend-config="prefix=$STATE_PREFIX"
       - run: terraform -chdir=infra apply -input=false "$RUNNER_TEMP/infra.tfplan"
+      - name: Check public API access
+        run: |
+          set -eu
+          url="$(terraform -chdir=infra output -json service_url | jq -r '. // empty')"
+          if [ -z "$url" ]; then exit 0; fi
+          curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "$url/health"
+          curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "$url/ready"
+          if [ "$DB_RUNTIME_ENABLED" = "true" ]; then
+            expected=401
+            login_url="${GOOGLE_REDIRECT_URL%/auth/google/callback}/auth/google/login"
+            login_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$login_url")"
+            if [ "$login_status" != 302 ]; then
+              echo "OAuth login returned $login_status, expected 302" >&2
+              exit 1
+            fi
+          else
+            expected=503
+          fi
+          for path in /api/v1/admin/sheet-bookings /api/v1/admin/sheet-bookings/calendar /api/v1/admin/sheet-bookings/weekly; do
+            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$url$path")"
+            if [ "$status" != "$expected" ]; then
+              echo "$path returned $status, expected $expected" >&2
+              exit 1
+            fi
+          done

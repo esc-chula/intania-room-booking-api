@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
@@ -10,7 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"sync"
+	"strings"
 	"time"
 
 	domainauth "github.com/MadManJJ/room-reservation-api/internal/core/domain/auth"
@@ -26,13 +27,14 @@ const (
 	stateLifetime   = 10 * time.Minute
 )
 
-type oauthTransaction struct {
-	verifier string
-	expires  time.Time
+type OAuthStateStore interface {
+	Save(context.Context, []byte, string, time.Time) error
+	Consume(context.Context, []byte) (string, bool, error)
 }
 
 type GoogleHandler struct {
 	service     domainauth.Service
+	stateStore  OAuthStateStore
 	logger      *slog.Logger
 	config      oauth2.Config
 	client      *http.Client
@@ -41,11 +43,12 @@ type GoogleHandler struct {
 	sameSite    http.SameSite
 	frontendURL string
 	domain      string
-	mu          sync.Mutex
-	states      map[string]oauthTransaction
 }
 
-func NewGoogle(ctx context.Context, service domainauth.Service, logger *slog.Logger, clientID, clientSecret, redirectURL, frontendURL, domain string, sameSite http.SameSite) (*GoogleHandler, error) {
+func NewGoogle(ctx context.Context, service domainauth.Service, stateStore OAuthStateStore, logger *slog.Logger, clientID, clientSecret, redirectURL, frontendURL, domain string, sameSite http.SameSite) (*GoogleHandler, error) {
+	if stateStore == nil {
+		return nil, errors.New("OAuth state store is required")
+	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	validator, err := idtoken.NewValidator(ctx, option.WithHTTPClient(client))
 	if err != nil {
@@ -56,15 +59,14 @@ func NewGoogle(ctx context.Context, service domainauth.Service, logger *slog.Log
 		return nil, err
 	}
 	return &GoogleHandler{
-		service: service,
-		logger:  logger,
+		service: service, stateStore: stateStore,
+		logger: logger,
 		config: oauth2.Config{
 			ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL,
 			Scopes: []string{"openid", "email", "profile"}, Endpoint: google.Endpoint,
 		},
 		client: client, verify: validator.Validate, secure: parsed.Scheme == "https", sameSite: sameSite,
 		frontendURL: frontendURL, domain: domain,
-		states: make(map[string]oauthTransaction),
 	}, nil
 }
 
@@ -78,7 +80,7 @@ func NewGoogle(ctx context.Context, service domainauth.Service, logger *slog.Log
 // @Router /auth/google/url [get]
 func (h *GoogleHandler) URL(w http.ResponseWriter, r *http.Request) {
 	h.sensitiveHeaders(w)
-	uri, err := h.start(w)
+	uri, err := h.start(r.Context(), w)
 	if err != nil {
 		h.failure(w, r, err)
 		return
@@ -88,14 +90,20 @@ func (h *GoogleHandler) URL(w http.ResponseWriter, r *http.Request) {
 
 // Login redirects the browser to Google using the same flow as URL.
 // @Summary Start Google sign-in
-// @Description Sets a temporary state cookie and redirects to Google.
+// @Description Redirects to the configured API host when needed, then sets a temporary state cookie and redirects to Google.
 // @Tags auth
 // @Success 302
 // @Failure 503 {object} errorResponse
 // @Router /auth/google/login [get]
 func (h *GoogleHandler) Login(w http.ResponseWriter, r *http.Request) {
 	h.sensitiveHeaders(w)
-	uri, err := h.start(w)
+	callback, _ := url.Parse(h.config.RedirectURL) // Startup configuration validates this URL.
+	if !strings.EqualFold(r.Host, callback.Host) {
+		callback.Path = "/auth/google/login"
+		http.Redirect(w, r, callback.String(), http.StatusFound)
+		return
+	}
+	uri, err := h.start(r.Context(), w)
 	if err != nil {
 		h.failure(w, r, err)
 		return
@@ -119,7 +127,11 @@ func (h *GoogleHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		h.redirectError(w, r, "invalid_callback", "state_cookie")
 		return
 	}
-	verifier, ok := h.consume(states[0])
+	verifier, ok, err := h.stateStore.Consume(r.Context(), hashState(states[0]))
+	if err != nil {
+		h.redirectError(w, r, "server_error", "state_storage")
+		return
+	}
 	if !ok {
 		h.redirectError(w, r, "invalid_callback", "state_expired_or_used")
 		return
@@ -179,7 +191,7 @@ func (h *GoogleHandler) redirectError(w http.ResponseWriter, r *http.Request, co
 	http.Redirect(w, r, h.frontendURL+"/login?auth_error="+code, http.StatusFound)
 }
 
-func (h *GoogleHandler) start(w http.ResponseWriter) (string, error) {
+func (h *GoogleHandler) start(ctx context.Context, w http.ResponseWriter) (string, error) {
 	state, err := randomToken()
 	if err != nil {
 		return "", err
@@ -188,33 +200,17 @@ func (h *GoogleHandler) start(w http.ResponseWriter) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	h.mu.Lock()
-	now := time.Now()
-	for key, transaction := range h.states {
-		if !now.Before(transaction.expires) {
-			delete(h.states, key)
-		}
+	if err := h.stateStore.Save(ctx, hashState(state), verifier, time.Now().Add(stateLifetime)); err != nil {
+		return "", err
 	}
-	if len(h.states) >= 10000 {
-		h.mu.Unlock()
-		return "", errors.New("too many pending OAuth flows")
-	}
-	h.states[state] = oauthTransaction{verifier: verifier, expires: now.Add(stateLifetime)}
-	h.mu.Unlock()
 	h.setStateCookie(w, state, int(stateLifetime.Seconds()))
 	uri := h.config.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("hd", h.domain))
 	return uri, nil
 }
 
-func (h *GoogleHandler) consume(state string) (string, bool) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	transaction, ok := h.states[state]
-	delete(h.states, state)
-	if !ok || !time.Now().Before(transaction.expires) {
-		return "", false
-	}
-	return transaction.verifier, true
+func hashState(state string) []byte {
+	hash := sha256.Sum256([]byte(state))
+	return hash[:]
 }
 
 func (h *GoogleHandler) setStateCookie(w http.ResponseWriter, state string, maxAge int) {

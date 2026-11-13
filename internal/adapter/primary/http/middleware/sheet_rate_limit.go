@@ -1,16 +1,13 @@
 package middleware
 
 import (
-	"net"
+	"context"
 	"net/http"
-	"net/netip"
-	"os"
-	"strings"
 	"sync"
 	"time"
 )
 
-const sheetRate = 10 // 600 requests per minute per IP, across all three routes.
+const sheetRate = 10 // 600 requests per minute per user, across all three routes.
 const sheetBurst = 600
 
 type sheetBucket struct {
@@ -18,16 +15,23 @@ type sheetBucket struct {
 	last   time.Time
 }
 
-// SheetRateLimit applies a per-IP token bucket to the Sheet endpoints.
-// The buckets are local to an instance; use an edge limiter if instances scale out.
-func SheetRateLimit() func(http.Handler) http.Handler {
+// SheetRateLimit applies a per-user token bucket to the Sheet endpoints.
+// The buckets are local to an instance.
+func SheetRateLimit(userID func(context.Context) (string, bool)) func(http.Handler) http.Handler {
 	var mu sync.Mutex
 	buckets := make(map[string]sheetBucket)
 	lastCleanup := time.Now()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			now := time.Now()
-			ip := sheetClientIP(r)
+			id, ok := userID(r.Context())
+			if !ok || id == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Cache-Control", "no-store")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"invalid authentication cookie"}`))
+				return
+			}
 			mu.Lock()
 			if now.Sub(lastCleanup) >= time.Minute {
 				for key, bucket := range buckets {
@@ -37,7 +41,7 @@ func SheetRateLimit() func(http.Handler) http.Handler {
 				}
 				lastCleanup = now
 			}
-			bucket, ok := buckets[ip]
+			bucket, ok := buckets[id]
 			if !ok {
 				bucket.tokens = sheetBurst
 			} else {
@@ -48,7 +52,7 @@ func SheetRateLimit() func(http.Handler) http.Handler {
 			if allowed {
 				bucket.tokens--
 			}
-			buckets[ip] = bucket
+			buckets[id] = bucket
 			mu.Unlock()
 			if !allowed {
 				w.Header().Set("Content-Type", "application/json")
@@ -61,25 +65,4 @@ func SheetRateLimit() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-func sheetClientIP(r *http.Request) string {
-	// Cloud Run appends the connecting client after any caller-supplied XFF entries.
-	if os.Getenv("K_SERVICE") != "" {
-		values := r.Header.Values("X-Forwarded-For")
-		if len(values) == 1 {
-			parts := strings.Split(values[0], ",")
-			if ip, err := netip.ParseAddr(strings.TrimSpace(parts[len(parts)-1])); err == nil {
-				return ip.Unmap().String()
-			}
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return "unknown"
-	}
-	if ip, err := netip.ParseAddr(host); err == nil {
-		return ip.Unmap().String()
-	}
-	return "unknown"
 }

@@ -3,6 +3,7 @@ package httpadapter
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	_ "github.com/MadManJJ/room-reservation-api/docs"
 	httpauth "github.com/MadManJJ/room-reservation-api/internal/adapter/primary/http/auth"
@@ -25,6 +27,13 @@ import (
 type pinger struct{}
 
 func (pinger) Ping(context.Context) error { return nil }
+
+type routerOAuthStates struct{}
+
+func (routerOAuthStates) Save(context.Context, []byte, string, time.Time) error { return nil }
+func (routerOAuthStates) Consume(context.Context, []byte) (string, bool, error) {
+	return "", false, nil
+}
 
 type sheetService struct{}
 
@@ -41,7 +50,10 @@ func (sheetService) Weekly(context.Context, string, string, string) (domainbooki
 	return domainbooking.WeeklyResult{Rooms: []domainbooking.WeeklyRoom{}}, nil
 }
 
-type authRepository struct{ current user.User }
+type authRepository struct {
+	current user.User
+	users   map[string]user.User
+}
 
 func (r *authRepository) ResolveGoogleUser(context.Context, string, string, string, string) (user.User, error) {
 	return r.current, nil
@@ -55,8 +67,35 @@ func (r *authRepository) FindAdmin(context.Context) (user.User, error) {
 	return user.User{}, auth.ErrNotFound
 }
 
-func (r *authRepository) FindUserByID(context.Context, string) (user.User, error) {
+func (r *authRepository) FindUserByID(_ context.Context, id string) (user.User, error) {
+	if r.users != nil {
+		u, ok := r.users[id]
+		if !ok {
+			return user.User{}, auth.ErrNotFound
+		}
+		return u, nil
+	}
 	return r.current, nil
+}
+
+func sheetAuthenticationUsers(t *testing.T, logger *slog.Logger, count int) (*httpauth.Handler, []string) {
+	t.Helper()
+	tokens, err := token.New("test-only-jwt-secret-at-least-32-bytes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := make(map[string]user.User, count)
+	jwts := make([]string, count)
+	for i := range count {
+		id := fmt.Sprintf("11111111-1111-4111-8111-%012d", i+1)
+		users[id] = user.User{ID: id, Role: user.RoleUserA, Active: true}
+		jwts[i], err = tokens.Issue(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := auth.New(&authRepository{users: users}, tokens, "student.chula.ac.th", "21")
+	return httpauth.New(service, logger, false, http.SameSiteLaxMode), jwts
 }
 
 func sheetAuthentication(t *testing.T, logger *slog.Logger, role string) (*httpauth.Handler, string) {
@@ -196,9 +235,8 @@ func TestSheetRoutesRequireAuthenticationForEveryRole(t *testing.T) {
 }
 
 func TestSheetRateLimitSharedAcrossRoutes(t *testing.T) {
-	t.Setenv("K_SERVICE", "")
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	authHandler, jwt := sheetAuthentication(t, logger, user.RoleUserA)
+	authHandler, jwts := sheetAuthenticationUsers(t, logger, 2)
 	router := NewRouter(RouterConfig{
 		Auth: authHandler, Health: health.New(pinger{}, logger), SheetBookings: httpsheetbooking.New(sheetService{}, logger), Logger: logger,
 	})
@@ -207,7 +245,7 @@ func TestSheetRateLimitSharedAcrossRoutes(t *testing.T) {
 		"/api/v1/admin/sheet-bookings/calendar?year=2026&month=11",
 		"/api/v1/admin/sheet-bookings/weekly?start_date=2026-11-02",
 	}
-	request := func(path, ip string) *httptest.ResponseRecorder {
+	request := func(path, ip, jwt string) *httptest.ResponseRecorder {
 		r := authenticatedRequest(http.MethodGet, path, jwt)
 		r.RemoteAddr = ip + ":1234"
 		w := httptest.NewRecorder()
@@ -215,26 +253,25 @@ func TestSheetRateLimitSharedAcrossRoutes(t *testing.T) {
 		return w
 	}
 	for i := 0; i < 600; i++ {
-		if got := request(paths[i%len(paths)], "203.0.113.10").Code; got != http.StatusOK {
+		if got := request(paths[i%len(paths)], "203.0.113.10", jwts[0]).Code; got != http.StatusOK {
 			t.Fatalf("request %d: got %d, want 200", i, got)
 		}
 	}
-	w := request(paths[1], "203.0.113.10")
+	w := request(paths[1], "203.0.113.11", jwts[0])
 	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != "1" || w.Body.String() != `{"error":"rate limit exceeded"}` {
 		t.Fatalf("rate limit response: %d %s", w.Code, w.Body.String())
 	}
-	if got := request(paths[0], "203.0.113.11").Code; got != http.StatusOK {
-		t.Fatalf("second IP: got %d, want 200", got)
+	if got := request(paths[0], "203.0.113.10", jwts[1]).Code; got != http.StatusOK {
+		t.Fatalf("second user on same IP: got %d, want 200", got)
 	}
-	if got := request("/health", "203.0.113.10").Code; got != http.StatusOK {
+	if got := request("/health", "203.0.113.10", jwts[0]).Code; got != http.StatusOK {
 		t.Fatalf("health: got %d, want 200", got)
 	}
 }
 
 func TestSheetRateLimitAllowsCampusBurst(t *testing.T) {
-	t.Setenv("K_SERVICE", "")
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	authHandler, jwt := sheetAuthentication(t, logger, user.RoleUserA)
+	authHandler, jwts := sheetAuthenticationUsers(t, logger, 200)
 	router := NewRouter(RouterConfig{
 		Auth: authHandler, Health: health.New(pinger{}, logger), SheetBookings: httpsheetbooking.New(sheetService{}, logger), Logger: logger,
 	})
@@ -245,9 +282,9 @@ func TestSheetRateLimitAllowsCampusBurst(t *testing.T) {
 	}
 	var rejected atomic.Int64
 	var wg sync.WaitGroup
-	for range 200 {
+	for _, jwt := range jwts {
 		wg.Add(1)
-		go func() {
+		go func(jwt string) {
 			defer wg.Done()
 			for _, path := range paths {
 				r := authenticatedRequest(http.MethodGet, path, jwt)
@@ -258,7 +295,7 @@ func TestSheetRateLimitAllowsCampusBurst(t *testing.T) {
 					rejected.Add(1)
 				}
 			}
-		}()
+		}(jwt)
 	}
 	wg.Wait()
 	if got := rejected.Load(); got != 0 {
@@ -340,7 +377,7 @@ func TestGoogleRoutesAndCORS(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	repo := &authRepository{current: user.User{ID: "11111111-1111-4111-8111-111111111111", Active: true}}
 	authService := auth.New(repo, nil, "student.chula.ac.th", "21")
-	google, err := httpauth.NewGoogle(context.Background(), authService, logger, "client", "secret", "https://api.example.com/auth/google/callback", "https://frontend.other.example", "student.chula.ac.th", http.SameSiteNoneMode)
+	google, err := httpauth.NewGoogle(context.Background(), authService, routerOAuthStates{}, logger, "client", "secret", "https://api.example.com/auth/google/callback", "https://frontend.other.example", "student.chula.ac.th", http.SameSiteNoneMode)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -92,7 +92,7 @@ resource "google_cloud_run_v2_service" "api" {
   name                 = "room-booking-api"
   location             = var.region
   ingress              = "INGRESS_TRAFFIC_ALL"
-  invoker_iam_disabled = false
+  invoker_iam_disabled = true
   deletion_protection  = false
 
   scaling {
@@ -126,9 +126,13 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "GOOGLE_SHEET_RANGE"
         value = var.sheet_range
       }
+      env {
+        name  = "APP_ENV"
+        value = "production"
+      }
       dynamic "env" {
         for_each = var.db_runtime_enabled ? {
-          APP_ENV          = "production", DB_MAX_CONNS = "5", DB_MIN_CONNS = "0",
+          DB_MAX_CONNS     = "5", DB_MIN_CONNS = "0",
           GOOGLE_CLIENT_ID = var.google_client_id, GOOGLE_REDIRECT_URL = var.google_redirect_url,
           FRONTEND_URL     = var.frontend_url, AUTH_COOKIE_SAME_SITE = "none"
         } : {}
@@ -177,7 +181,7 @@ resource "google_cloud_run_v2_service" "api" {
   depends_on = [google_project_service.required, google_secret_manager_secret_iam_member.runtime]
 }
 
-# Allow the org test account to invoke the private API.
+# Retain these invoker grants if the API is made private again.
 resource "google_cloud_run_v2_service_iam_member" "tester" {
   count    = var.image_url == "" ? 0 : 1
   project  = var.project_id
