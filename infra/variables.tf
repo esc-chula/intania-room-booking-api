@@ -20,3 +20,28 @@ variable "image_url" {
   type        = string
   default     = ""
 }
+
+variable "db_runtime_enabled" {
+  type    = bool
+  default = false
+}
+variable "google_client_id" {
+  type    = string
+  default = ""
+}
+variable "google_redirect_url" {
+  type    = string
+  default = ""
+}
+variable "frontend_url" {
+  type    = string
+  default = ""
+}
+variable "secret_versions" {
+  type = map(string)
+  default = {
+    database-url         = "1"
+    jwt-secret           = "1"
+    google-client-secret = "1"
+  }
+}

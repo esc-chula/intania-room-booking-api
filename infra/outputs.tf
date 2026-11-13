@@ -13,3 +13,7 @@ output "frontend_service_account" {
 output "service_url" {
   value = try(google_cloud_run_v2_service.api[0].uri, null)
 }
+
+output "cloud_sql_connection_name" {
+  value = google_sql_database_instance.booking.connection_name
+}

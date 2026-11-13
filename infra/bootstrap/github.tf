@@ -54,7 +54,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   attribute_condition                = "assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '${var.github_owner_id}' && assertion.ref == 'refs/heads/main'"
   attribute_mapping = {
     "google.subject"   = "assertion.sub"
-    "attribute.access" = "assertion.workflow_ref == '${var.github_repository}/.github/workflows/ci.yml@refs/heads/main' ? 'publisher' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/terraform.yml@refs/heads/main' && !has(assertion.environment) ? 'plan' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/terraform.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'infra-apply' ? 'apply' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/release.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'release' ? 'apply' : 'denied'"
+    "attribute.access" = "assertion.workflow_ref == '${var.github_repository}/.github/workflows/ci.yml@refs/heads/main' ? 'publisher' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/terraform.yml@refs/heads/main' && !has(assertion.environment) ? 'plan' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/terraform.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'infra-apply' ? 'apply' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/release.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'release' ? 'apply' : assertion.workflow_ref == '${var.github_repository}/.github/workflows/sync-secrets.yml@refs/heads/main' && has(assertion.environment) && assertion.environment == 'infra-apply' ? 'secrets' : assertion.workflow_ref in ['${var.github_repository}/.github/workflows/migrate-up.yml@refs/heads/main', '${var.github_repository}/.github/workflows/migrate-down.yml@refs/heads/main', '${var.github_repository}/.github/workflows/bootstrap-os.yml@refs/heads/main', '${var.github_repository}/.github/workflows/bootstrap-admin.yml@refs/heads/main'] && has(assertion.environment) && assertion.environment == 'database-production' ? 'database' : 'denied'"
   }
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
@@ -62,7 +62,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
 }
 
 resource "google_service_account" "github" {
-  for_each     = toset(["publisher", "plan", "apply"])
+  for_each     = toset(["publisher", "plan", "apply", "database", "secrets"])
   account_id   = "github-${each.key}"
   display_name = "GitHub Actions ${each.key}"
 }
@@ -112,10 +112,18 @@ resource "google_project_iam_member" "apply" {
     "roles/artifactregistry.admin",
     "roles/iam.serviceAccountAdmin",
     "roles/serviceusage.serviceUsageAdmin",
+    "roles/cloudsql.admin",
+    "roles/secretmanager.admin",
   ])
   project = var.project_id
   role    = each.value
   member  = google_service_account.github["apply"].member
+}
+
+resource "google_project_iam_member" "database_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = google_service_account.github["database"].member
 }
 
 resource "google_service_account_iam_member" "runtime_user" {

@@ -1,5 +1,7 @@
 # GCP test
 
+For the university Cloud SQL setup and production operations, see [DATABASE.md](DATABASE.md).
+
 This stack deploys the existing read-only Sheets API to Cloud Run. The API is
 public and can return requester names and booking details. Use this only with
 data you are authorized to expose. It does not implement authentication,

@@ -16,6 +16,11 @@ jobs:
       TF_VAR_region: ${{ vars.GCP_REGION }}
       TF_VAR_spreadsheet_id: ${{ vars.GOOGLE_SPREADSHEET_ID }}
       TF_VAR_sheet_range: ${{ vars.GOOGLE_SHEET_RANGE }}
+      TF_VAR_db_runtime_enabled: ${{ vars.DB_RUNTIME_ENABLED || 'false' }}
+      TF_VAR_google_client_id: ${{ vars.GOOGLE_CLIENT_ID }}
+      TF_VAR_google_redirect_url: ${{ vars.GOOGLE_REDIRECT_URL }}
+      TF_VAR_frontend_url: ${{ vars.FRONTEND_URL }}
+      TF_VAR_secret_versions: ${{ vars.RUNTIME_SECRET_VERSIONS || '{"database-url":"1","jwt-secret":"1","google-client-secret":"1"}' }}
       STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
       STATE_PREFIX: ${{ vars.TF_STATE_PREFIX }}
     steps:

@@ -26,12 +26,10 @@ migrate-down:
 		"$(GOOSE)" -dir db/migrations postgres "$$DATABASE_URL" down
 
 bootstrap-admin:
-	@test -f .env || { echo 'Create .env from .env.example first.' >&2; exit 1; }
-	@set -eu; set -a; . ./.env; set +a; go run ./cmd/bootstrap-admin
+	@set -eu; if [ -z "$${DATABASE_URL:-}" ] && [ -f .env ]; then set -a; . ./.env; set +a; fi; go run ./cmd/bootstrap-admin
 
 bootstrap-os:
-	@test -f .env || { echo 'Create .env from .env.example first.' >&2; exit 1; }
-	@set -eu; set -a; . ./.env; set +a; go run ./cmd/bootstrap-os
+	@set -eu; if [ -z "$${DATABASE_URL:-}" ] && [ -f .env ]; then set -a; . ./.env; set +a; fi; go run ./cmd/bootstrap-os
 
 run:
 	@test -f .env || { echo 'Create .env from .env.example first.' >&2; exit 1; }
