@@ -65,12 +65,6 @@ resource "google_sql_database" "booking" {
   instance = google_sql_database_instance.booking.name
 }
 
-resource "google_project_iam_member" "api_cloudsql" {
-  project = var.project_id
-  role    = "roles/cloudsql.client"
-  member  = google_service_account.api.member
-}
-
 resource "google_secret_manager_secret" "runtime" {
   for_each  = toset(["database-url", "jwt-secret", "google-client-secret"])
   secret_id = "room-booking-${each.key}"
@@ -180,7 +174,7 @@ resource "google_cloud_run_v2_service" "api" {
       error_message = "Configure OAuth and frontend URLs before enabling database runtime."
     }
   }
-  depends_on = [google_project_service.required, google_project_iam_member.api_cloudsql, google_secret_manager_secret_iam_member.runtime]
+  depends_on = [google_project_service.required, google_secret_manager_secret_iam_member.runtime]
 }
 
 # Allow the org test account to invoke the private API.

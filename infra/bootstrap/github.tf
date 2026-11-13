@@ -126,6 +126,12 @@ resource "google_project_iam_member" "database_client" {
   member  = google_service_account.github["database"].member
 }
 
+resource "google_project_iam_member" "api_cloudsql" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:room-booking-api@${var.project_id}.iam.gserviceaccount.com"
+}
+
 resource "google_service_account_iam_member" "runtime_user" {
   service_account_id = "projects/${var.project_id}/serviceAccounts/room-booking-api@${var.project_id}.iam.gserviceaccount.com"
   role               = "roles/iam.serviceAccountUser"
